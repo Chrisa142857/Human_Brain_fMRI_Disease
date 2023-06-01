@@ -1,53 +1,44 @@
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import numpy as np
-import torch, csv
-
-
-def load_label(label_csvn='../data/OASIS3/clinical_data/ADRC_clinical.csv') -> {}:
-    '''
-     Cognitively normal: CN
-     Others: AD
-    '''
-    subject_label = {}
-    with open(label_csvn, newline='') as csvfile:
-    spamreader = csv.reader(csvfile, delimiter=' ', quotechar='|')
-    data = list(spamreader)
-    
-    with open(label_csvn, 'r') as f:
-        lines = f.read().split('\n')[1:-1]
-    for line in lines:
-        items = line.split(',')
-        subject_n = items[1].replace('_', '')
-        if items[-1] not in class_map: continue
-        subject_label[subject_n] = class_map[items[-1]]
-    return subject_label
+import torch, csv, os
+STEP_SIZE = 30
+WIN_SIZE = 100
 
 class RoIBOLDCorrCoefMat(Dataset):
-
-    def __init__(self, flist, seq_len, ) -> None:
-        from trainval import step_size as STEP_SIZE
+    def __init__(self, flist, label_csvn=None, preproc=np.corrcoef, roi_num=191) -> None:
         step_size = STEP_SIZE
-        self.flist = []
+        seq_len = WIN_SIZE
+        with open(label_csvn, 'r') as f:
+            lines = f.read().split('\n')[1:-1]
+        self.label_dict = {
+            l.split(',')[0]: l.split(',')[1] 
+        for l in lines}
+        self.flist = flist
         self.labels = []
-        self.subjects = []
-        subject_label = load_label()
+        self.subject_id_list = []
         self.seq_len = seq_len
-        self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(subject_label.values())))}
-        self.subject_dict = {}
+        self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
+        self.subject_id_dict = {}
         self.data = []
         for fpath in tqdm(flist, desc="init dataset"):
-            subject_n = fpath.split('/')[-1][4:-8]
-            if subject_n not in subject_label: continue
-            data = np.loadtxt(fpath)[:, :90] # Time x RoI
-            # data = (data - data.min()) / (data.max() - data.min())
-            data = [
-                np.corrcoef(data[st:st+seq_len].T) for st in range(0, len(data), step_size)
-            ]
-            self.data.extend(data)
-            self.labels.extend([self.class_dict[subject_label[subject_n]] for _ in range(len(data))])
-            if subject_n not in self.subject_dict: self.subject_dict[subject_n] = len(self.subject_dict)
-            self.subjects.extend([self.subject_dict[subject_n] for _ in range(len(data))])
+            subject_n = fpath.split('/')[-1].split('_')[0]
+            label_key = fpath.split('/')[-1][:-4]
+            if label_key not in self.label_dict: continue
+            data = np.loadtxt(fpath)[:, :roi_num] # Time x RoI
+            if preproc is not None:
+                data = [
+                    preproc(data[st:st+seq_len].T) for st in range(0, len(data), step_size)
+                ]
+                self.data.extend(data)
+                self.labels.extend([self.class_dict[self.label_dict[label_key]] for _ in range(len(data))])
+                if subject_n not in self.subject_id_dict: self.subject_id_dict[subject_n] = len(self.subject_id_dict)
+                self.subject_id_list.extend([self.subject_id_dict[subject_n] for _ in range(len(data))])
+            else:
+                self.data.append(data)
+                self.labels.append(self.class_dict[self.label_dict[label_key]])
+                if subject_n not in self.subject_id_dict: self.subject_id_dict[subject_n] = len(self.subject_id_dict)
+                self.subject_id_list.append(self.subject_id_dict[subject_n])
 
         self.data = torch.from_numpy(np.stack(self.data).astype(np.float32))
 
@@ -75,3 +66,11 @@ class RoIBOLDCorrCoefMat(Dataset):
             #     data.append(torch.cat([d, torch.zeros(self.seq_len-d.shape[0], d.shape[1], dtype=d.dtype)], dim=0))
         data = torch.stack(data)
         return data, torch.cat(labels), torch.cat(subs)
+
+
+if __name__ == '__main__':
+    r = '../data/OASIS3/fMRI_processed/RoI_BOLD/a2009s_ReadyForTrain'
+    label_csvn='../data/OASIS3/fMRI_label.csv'
+    flist = os.listdir(r)
+    flist = [os.path.join(r, f) for f in flist]
+    RoIBOLDCorrCoefMat(flist, label_csvn, preproc=None)
