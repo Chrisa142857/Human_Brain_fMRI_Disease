@@ -1,3 +1,5 @@
+import csv, os
+import numpy as np
 
 def class_decode(classn):
     if 'uncertain' in classn or 'Unc' in classn or '0.5' in classn: return None
@@ -101,3 +103,32 @@ def rename_bold_data():
         out = np.concatenate(out)
         np.savetxt(os.path.join(save_r, save_n+'.txt'), out)
 
+
+def ad_convert_vs_nonconvert(label_csv):
+    r = '../data/OASIS3/fMRI_processed/RoI_BOLD/a2009s_ReadyForTrain'
+    out = {}
+    sub = {}
+    with open(label_csv, newline='') as csvfile:
+        spamreader = csv.reader(csvfile)
+        lines = list(spamreader)[1:]
+    for d in lines:
+        sid = d[0].split('_')[0]
+        if sid not in sub: sub[sid] = []
+        out[d[0]] = d[1].replace(' ', '')
+        sub[sid].append(d[0])
+    new_csv = 'SUBJECT_ID,LABEL,Progress,Data_path\n'
+    for sid in sub:
+        sids = np.sort(sub[sid]).tolist()
+        labels = [out[sid] for sid in sids]
+        if 'AD' in labels:
+            label = 'convert'
+        else:
+            label = 'nonconvert'
+        new_csv += '%s,%s,%s,%s\n' % (sid, label, '@'.join(labels), '@'.join([os.path.join(r, sid+'.txt') for sid in sids]))
+    
+    with open('OASIS3_convert_vs_nonconvert.csv', 'w') as f:
+        f.write(new_csv)
+
+
+if __name__ == "__main__":
+    ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv')
