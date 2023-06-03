@@ -51,7 +51,7 @@ class RoIBOLD(Dataset):
         labels = []
         subs = []
         for d, label, sub in batch:
-            data.append(torch.from_numpy(d))
+            data.append(d)
             labels.append(torch.LongTensor([label]))
             subs.append(torch.LongTensor([sub]))
             # d = torch.from_numpy(d)
@@ -60,7 +60,7 @@ class RoIBOLD(Dataset):
             #     data.append(d[st:st+self.seq_len])
             # else:
             #     data.append(torch.cat([d, torch.zeros(self.seq_len-d.shape[0], d.shape[1], dtype=d.dtype)], dim=0))
-        data = torch.stack(data)
+        # data = torch.stack(data)
         return data, torch.cat(labels), torch.cat(subs)
 
 

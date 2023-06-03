@@ -10,7 +10,7 @@ BASELINE_MODEL = {
 ## Train-val set
 
 TRAIN_RATIO = 0.7
-BATCH_SIZE = 1
+BATCH_SIZE = 8
 DEVICE = 'cuda:0'
 SAVE_DIR = './work_dir'
 learning_rate = 0.01

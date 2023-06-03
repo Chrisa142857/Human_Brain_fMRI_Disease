@@ -17,8 +17,8 @@ def main():
 
     train_batch_size = config.BATCH_SIZE
     val_batch_size = config.BATCH_SIZE
-    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16)#, collate_fn=train_data.collate_fn)
-    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16)#, collate_fn=val_data.collate_fn)
+    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
+    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
     model = Baseline().to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
@@ -50,11 +50,11 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
     sub_ids = []
     sub_scores = []
     for batch_idx, (data, target, sid) in enumerate(dataloader):
-        data = data.to(config.DEVICE)
+        # data = [d.to(config.DEVICE) for d in data]
         target = target.to(config.DEVICE)
         sid = sid.to(config.DEVICE)
         optimizer.zero_grad()
-        output = model(data)
+        output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
         score, pred = torch.max(output, dim=1)
         train_correct += torch.sum(pred == target)
         y_true += target.tolist()
@@ -133,7 +133,7 @@ def get_subject_acc(subject_ids, targets, preds, scores):
         # spred.append(1 if score[pred==1].mean() > score[pred==0].mean() else 0)
         # sscore.append(score.mean())
         sids.append(si)
-        indecies.append(torch.where(subject_ids==si)[0][score.argsort()[0]])
+        indecies.append(torch.where(subject_ids==si)[0][score.argsort()[:1]])
     return torch.stack(sids), torch.stack(strue), torch.stack(spred), torch.stack(sscore), torch.cat(indecies)
 
 if __name__ == '__main__':
