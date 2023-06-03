@@ -8,13 +8,18 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm, trange
-
+import numpy as np
 
 def main():
     dataset = RoIBOLD(data_csvn='OASIS3_convert_vs_nonconvert.csv')
     train_len = int(config.TRAIN_RATIO*len(dataset))
     trainset, valset = random_split(dataset, [train_len, len(dataset) - train_len], torch.Generator().manual_seed(2345))
-
+    train_class_hist = np.histogram(dataset.labels[torch.LongTensor(trainset.indices)], bins=len(dataset.class_dict))[0]
+    print(f"train label histogram: {train_class_hist}, label class: {dataset.class_dict}")
+    train_class_hist = np.histogram(dataset.labels[torch.LongTensor(valset.indices)], bins=len(dataset.class_dict))[0]
+    print(f"val label histogram: {train_class_hist}, val class: {dataset.class_dict}")
+    print("tain length", train_len, "validate length", len(dataset) - train_len)
+    # exit()
     train_batch_size = config.BATCH_SIZE
     val_batch_size = config.BATCH_SIZE
     train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
@@ -30,9 +35,10 @@ def main():
 
     best_acc = 0 
     for epoch in trange(config.num_epochs):
-        train_loss, train_acc, sub_train_acc = train(model, train_loader, criterion, optimizer, scheduler, epoch)
-        val_loss, val_acc, sub_val_acc = validate(model, val_loader, criterion, epoch)
-        print(f"Epoch {epoch+1} | Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.3f} | Subject Train Acc: {sub_train_acc:.3f} | Val Loss: {val_loss:.3f} | Val Acc: {val_acc:.3f} | Subject Val Acc: {sub_val_acc:.3f}")
+        train_loss, train_acc, sub_train_acc, train_acc2 = train(model, train_loader, criterion, optimizer, scheduler, epoch)
+        val_loss, val_acc, sub_val_acc, val_acc2 = validate(model, val_loader, criterion, epoch)
+        print(f"Epoch {epoch+1:04d} | Train Loss: {train_loss:.5f} | Sample Train Acc: {train_acc:.5f} | Val Loss: {val_loss:.5f} | Sample Val Acc: {val_acc:.5f}")
+        print(f"             Subject Train Acc: {sub_train_acc:.5f} | Train_acc_balance: {train_acc2:.5f} | Subject Val Acc: {sub_val_acc:.5f} | Val_acc_balance: {val_acc2:.5f}")
         torch.save(model.state_dict(), "%s/lastest.pth" % (config.SAVE_DIR))
         if best_acc <= sub_val_acc: torch.save(model.state_dict(), "%s/best.pth" % (config.SAVE_DIR))
         scheduler.step()
@@ -65,20 +71,22 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
         sub_ids.append(sub_id)
         sub_scores.append(sub_score)
         loss = criterion(output, target) # loss of all time points 
-        train_loss += loss.item() * data.size(0)
+        train_loss += loss.item() * len(data)
         loss.backward()
         optimizer.step()
         if batch_idx % 10 == 0:
             step = epoch * len(dataloader) + batch_idx
-            print('Train/Loss', loss.item(), step)
-            print('Train/Learning Rate', scheduler.get_last_lr()[0], step)
+            # print('Train/Loss', loss.item(), step)
+            # print('Train/Learning Rate', scheduler.get_last_lr()[0], step)
     train_loss /= len(dataloader.dataset)
     train_acc = train_correct.float() / len(dataloader.dataset)
     sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
-    assert len(sub_id) == len(dataloader.dataset.subject_dict)
+    # assert len(sub_id) == len(dataloader.dataset.dataset.subject_names)
     sub_acc = torch.sum(spred == strue).float() / len(spred)
+    sub_acc0 = torch.sum(spred[strue==0] == strue[strue==0]).float() / len(spred[strue==0])
+    sub_acc1 = torch.sum(spred[strue==1] == strue[strue==1]).float() / len(spred[strue==1])
 
-    return train_loss, train_acc, sub_acc
+    return train_loss, train_acc, sub_acc, (sub_acc0+sub_acc1)/2
 
 
 def validate(model, dataloader, criterion, epoch):
@@ -93,10 +101,11 @@ def validate(model, dataloader, criterion, epoch):
     sub_scores = []
     with torch.no_grad():
         for data, target, sid in dataloader:
-            data = data.to(config.DEVICE)
+            # data = data.to(config.DEVICE)
             target = target.to(config.DEVICE)
             sid = sid.to(config.DEVICE)
-            output = model(data)
+            # output = model(data)
+            output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
             score, pred = torch.max(output, dim=1)
             val_correct += torch.sum(pred == target)
             y_true += target.tolist()
@@ -107,14 +116,16 @@ def validate(model, dataloader, criterion, epoch):
             sub_ids.append(sub_id)
             sub_scores.append(sub_score)
             loss = criterion(output, target) # loss of all time points 
-            val_loss += loss.item() * data.size(0)
+            val_loss += loss.item() * len(data)
         val_loss /= len(dataloader.dataset)
         val_acc = val_correct.float() / len(dataloader.dataset)
         sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
-        assert len(sub_id) == len(dataloader.dataset.subject_dict)
+        # assert len(sub_id) == len(dataloader.dataset.dataset.subject_names)
         sub_acc = torch.sum(spred == strue).float() / len(spred)
+        sub_acc0 = torch.sum(spred[strue==0] == strue[strue==0]).float() / len(spred[strue==0])
+        sub_acc1 = torch.sum(spred[strue==1] == strue[strue==1]).float() / len(spred[strue==1])
 
-    return val_loss, val_acc, sub_acc
+    return val_loss, val_acc, sub_acc, (sub_acc0+sub_acc1)/2
 
 def get_subject_acc(subject_ids, targets, preds, scores):
     strue = []
