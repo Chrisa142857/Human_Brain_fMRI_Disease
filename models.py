@@ -27,6 +27,22 @@ class BaselineSPD(nn.Module):
     def __init__(self, matrix_size) -> None:
         super().__init__()
         self.spdnet = SPDNet(matrix_size)
+        self.linear1 = nn.Linear(self.spdnet.out_size, BASELINE_MODEL['embed_dim'])
+        self.linear2 = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim'])
+        self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
+
+    def forward(self, x):
+        ## x.shape [batch, roi_num, roi_num] (SPD matrix)
+        x = self.spdnet(x)#.unsqueeze(1)
+        x = self.linear1(x).relu()
+        x = self.linear2(x).relu()
+        x = self.classifier(x)
+        return x
+            
+class BaselineSPDTransformer(nn.Module):
+    def __init__(self, matrix_size) -> None:
+        super().__init__()
+        self.spdnet = SPDNet(matrix_size)
         self.linear = nn.Linear(self.spdnet.out_size, BASELINE_MODEL['embed_dim'])
         encoder_layer = nn.TransformerEncoderLayer(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         self.pos_encoder = PositionalEncoding(BASELINE_MODEL['embed_dim'])
@@ -35,10 +51,11 @@ class BaselineSPD(nn.Module):
 
     def forward(self, x):
         ## x.shape [batch, roi_num, roi_num] (SPD matrix)
-        x = self.spdnet(x)
+        x = self.spdnet(x)#.unsqueeze(1)
+        x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)
-        # x = x.mean(dim=0)
+        x = x.mean(dim=0)
         x = x.max(dim=0)[0]
         x = self.classifier(x)
         return x
