@@ -104,8 +104,7 @@ def rename_bold_data():
         np.savetxt(os.path.join(save_r, save_n+'.txt'), out)
 
 
-def ad_convert_vs_nonconvert(label_csv):
-    r = '../data/OASIS3/fMRI_processed/RoI_BOLD/a2009s_ReadyForTrain'
+def ad_convert_vs_nonconvert(label_csv, r):
     out = {}
     sub = {}
     with open(label_csv, newline='') as csvfile:
@@ -131,4 +130,5 @@ def ad_convert_vs_nonconvert(label_csv):
 
 
 if __name__ == "__main__":
-    ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv')
+    # ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv', '../data/OASIS3/fMRI_ processed/RoI_BOLD/a2009s_ReadyForTrain')
+    ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv', '../data/AAL_90/ADNI_FC')

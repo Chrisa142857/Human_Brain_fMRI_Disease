@@ -13,5 +13,5 @@ TRAIN_RATIO = 0.7
 BATCH_SIZE = 8
 DEVICE = 'cuda:0'
 SAVE_DIR = './work_dir'
-learning_rate = 0.0001
+learning_rate = 0.00001
 num_epochs = 100

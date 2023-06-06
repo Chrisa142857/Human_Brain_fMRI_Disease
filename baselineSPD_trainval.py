@@ -1,5 +1,5 @@
-from models import Baseline
-from datasets import RoIBOLD
+from models import BaselineSPD
+from datasets import RoIBOLDCorrCoef
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
 
@@ -12,10 +12,10 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    dataset = RoIBOLD(
+    dataset = RoIBOLDCorrCoef(
         data_csvn='OASIS3_convert_vs_nonconvert.csv', 
         # preproc=bold_signal_to_trends,
-        preproc=bold_signal_threshold,
+        # preproc=bold_signal_threshold,
     )
     train_len = int(config.TRAIN_RATIO*len(dataset))
     trainset, valset = random_split(dataset, [train_len, len(dataset) - train_len], torch.Generator().manual_seed(2345))
@@ -30,10 +30,10 @@ def main():
     class_weights = torch.from_numpy(sum(train_class_hist)/train_class_hist).float()#.to(config.DEVICE)
     # sampler = WeightedRandomSampler([class_weights[c] for c in dataset.labels[torch.LongTensor(trainset.indices)]], train_batch_size)
     # train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=False, sampler=sampler, num_workers=16, collate_fn=dataset.collate_fn)
-    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
-    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
+    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16)#, collate_fn=dataset.collate_fn)
+    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16)#, collate_fn=dataset.collate_fn)
 
-    model = Baseline().to(config.DEVICE)
+    model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()
@@ -66,11 +66,11 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
     sub_ids = []
     sub_scores = []
     for batch_idx, (data, target, sid) in enumerate(dataloader):
-        # data = [d.to(config.DEVICE) for d in data]
         target = target.to(config.DEVICE)
         sid = sid.to(config.DEVICE)
         optimizer.zero_grad()
-        output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+        # output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+        output = model(data.to(config.DEVICE))
         score, pred = torch.max(output, dim=1)
         train_correct += torch.sum(pred == target)
         y_true += target.tolist()
@@ -91,7 +91,6 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
     train_loss /= len(dataloader.dataset)
     train_acc = train_correct.float() / len(dataloader.dataset)
     sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
-    # assert len(sub_id) == len(dataloader.dataset.dataset.subject_names)
     sub_acc = torch.sum(spred == strue).float() / len(spred)
     sub_acc0 = torch.sum(spred[strue==0] == strue[strue==0]).float() / len(spred[strue==0])
     sub_acc1 = torch.sum(spred[strue==1] == strue[strue==1]).float() / len(spred[strue==1])
@@ -111,11 +110,10 @@ def validate(model, dataloader, criterion, epoch):
     sub_scores = []
     with torch.no_grad():
         for data, target, sid in dataloader:
-            # data = data.to(config.DEVICE)
             target = target.to(config.DEVICE)
             sid = sid.to(config.DEVICE)
-            # output = model(data)
-            output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+            # output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+            output = model(data.to(config.DEVICE))
             score, pred = torch.max(output, dim=1)
             val_correct += torch.sum(pred == target)
             y_true += target.tolist()
@@ -151,8 +149,6 @@ def get_subject_acc(subject_ids, targets, preds, scores):
         strue.append(tgt[0])
         spred.append(pred[score.argmax()])
         sscore.append(score.max())
-        # spred.append(1 if score[pred==1].mean() > score[pred==0].mean() else 0)
-        # sscore.append(score.mean())
         sids.append(si)
         indecies.append(torch.where(subject_ids==si)[0][score.argsort()[:1]])
     return torch.stack(sids), torch.stack(strue), torch.stack(spred), torch.stack(sscore), torch.cat(indecies)

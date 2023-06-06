@@ -6,7 +6,7 @@ STEP_SIZE = 30
 WIN_SIZE = 100
 
 class RoIBOLD(Dataset):
-    def __init__(self, data_csvn=None, roi_num=191) -> None:
+    def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
         # step_size = STEP_SIZE
         # seq_len = WIN_SIZE
         with open(data_csvn, 'r') as f:
@@ -29,7 +29,10 @@ class RoIBOLD(Dataset):
             for fpath in fpaths:
                 data.append(np.loadtxt(fpath)[:, :roi_num]) # Time x RoI
             subject_n = fpath.split('/')[-1].split('_')[0]
-            self.data.append(torch.from_numpy(np.concatenate(data).astype(np.float32)))
+            data = torch.from_numpy(np.concatenate(data).astype(np.float32))
+            if preproc:
+                data = preproc(data)
+            self.data.append(data)
             self.labels.append(self.class_dict[self.label_dict[subject_n]])
             self.subject_id_list.append(sid)
             if subject_n not in self.subject_names: 
@@ -62,6 +65,53 @@ class RoIBOLD(Dataset):
             #     data.append(torch.cat([d, torch.zeros(self.seq_len-d.shape[0], d.shape[1], dtype=d.dtype)], dim=0))
         # data = torch.stack(data)
         return data, torch.cat(labels), torch.cat(subs)
+
+
+class RoIBOLDCorrCoef(Dataset):
+    def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
+        # step_size = STEP_SIZE
+        # seq_len = WIN_SIZE
+        self.roi_num = roi_num
+        with open(data_csvn, 'r') as f:
+            lines = f.read().split('\n')[1:-1]
+        self.label_dict = {
+            l.split(',')[0]: l.split(',')[1] 
+        for l in lines}
+        self.flist = [
+            l.split(',')[3].split('@')
+        for l in lines]
+        self.labels = []
+        # self.seq_len = seq_len
+        self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
+        self.subject_names = []
+        self.subject_id_list = []
+        self.data = []
+        sid = 0
+        for fpaths in tqdm(self.flist, desc="init dataset"):
+            data = []
+            for fpath in fpaths:
+                data.append(np.loadtxt(fpath)[:, :roi_num]) # Time x RoI
+            subject_n = fpath.split('/')[-1].split('_')[0]
+            data = torch.from_numpy(np.concatenate(data).astype(np.float32))
+            if preproc:
+                data = preproc(data)
+            self.data.append(data)
+            self.labels.append(self.class_dict[self.label_dict[subject_n]])
+            self.subject_id_list.append(sid)
+            if subject_n not in self.subject_names: 
+                self.subject_names.append(subject_n)
+                sid += 1
+
+        self.labels = torch.LongTensor(self.labels)
+        self.subject_id_list = torch.LongTensor(self.subject_id_list)
+
+    def __getitem__(self, idx):
+        data = torch.corrcoef(self.data[idx].T)
+        return data, self.labels[idx], self.subject_id_list[idx]
+
+    def __len__(self):
+        return len(self.data)
+    
 
 
 if __name__ == '__main__':
