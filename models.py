@@ -28,14 +28,20 @@ class BaselineSPD(nn.Module):
         super().__init__()
         self.spdnet = SPDNet(matrix_size)
         self.linear1 = nn.Linear(self.spdnet.out_size, BASELINE_MODEL['embed_dim'])
-        self.linear2 = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim'])
+        self.linears = nn.ModuleList([nn.Sequential(
+            nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim']),
+            nn.ReLU(),
+            nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim']),
+            nn.ReLU(),
+        ) for _ in range(20)])
         self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
 
     def forward(self, x):
         ## x.shape [batch, roi_num, roi_num] (SPD matrix)
         x = self.spdnet(x)#.unsqueeze(1)
-        x = self.linear1(x).relu()
-        x = self.linear2(x).relu()
+        x = self.linear1(x)
+        for layer in self.linears:
+            x = x + layer(x)
         x = self.classifier(x)
         return x
             
@@ -50,12 +56,12 @@ class BaselineSPDTransformer(nn.Module):
         self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
 
     def forward(self, x):
-        ## x.shape [batch, roi_num, roi_num] (SPD matrix)
-        x = self.spdnet(x)#.unsqueeze(1)
+        ## x.shape [batch, timeseries, roi_num, roi_num] (SPD matrix)
+        x = self.spdnet(x.squeeze()).unsqueeze(0)# batch, timeseries, channel
         x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)
-        x = x.mean(dim=0)
+        # x = x.mean(dim=0)
         x = x.max(dim=0)[0]
         x = self.classifier(x)
         return x

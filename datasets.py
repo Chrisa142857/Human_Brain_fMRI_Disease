@@ -3,7 +3,7 @@ from tqdm import tqdm
 import numpy as np
 import torch, csv, os
 STEP_SIZE = 30
-WIN_SIZE = 100
+WIN_SIZE = 50
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
@@ -69,8 +69,8 @@ class RoIBOLD(Dataset):
 
 class RoIBOLDCorrCoef(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
-        # step_size = STEP_SIZE
-        # seq_len = WIN_SIZE
+        step_size = STEP_SIZE
+        seq_len = WIN_SIZE
         self.roi_num = roi_num
         with open(data_csvn, 'r') as f:
             lines = f.read().split('\n')[1:-1]
@@ -81,7 +81,7 @@ class RoIBOLDCorrCoef(Dataset):
             l.split(',')[3].split('@')
         for l in lines]
         self.labels = []
-        # self.seq_len = seq_len
+        self.seq_len = seq_len
         self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
         self.subject_names = []
         self.subject_id_list = []
@@ -95,7 +95,7 @@ class RoIBOLDCorrCoef(Dataset):
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
                 data = preproc(data)
-            self.data.append(data)
+            self.data.append([data[st:st+seq_len] for st in range(0, len(data), step_size)][:-1])
             self.labels.append(self.class_dict[self.label_dict[subject_n]])
             self.subject_id_list.append(sid)
             if subject_n not in self.subject_names: 
@@ -106,12 +106,22 @@ class RoIBOLDCorrCoef(Dataset):
         self.subject_id_list = torch.LongTensor(self.subject_id_list)
 
     def __getitem__(self, idx):
-        data = torch.corrcoef(self.data[idx].T)
+        torch.set_printoptions(precision=3, threshold=1e-10)
+        data = torch.stack([torch.corrcoef(d) for d in self.data[idx]])
         return data, self.labels[idx], self.subject_id_list[idx]
 
     def __len__(self):
         return len(self.data)
-    
+        
+    def collate_fn(self, batch):
+        data = []
+        labels = []
+        subs = []
+        for d, label, sub in batch:
+            data.append(d)
+            labels.append(torch.LongTensor([label]))
+            subs.append(torch.LongTensor([sub]))
+        return data, torch.cat(labels), torch.cat(subs)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-from models import BaselineSPD
+from models import BaselineSPD, BaselineSPDTransformer
 from datasets import RoIBOLDCorrCoef
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
@@ -30,10 +30,11 @@ def main():
     class_weights = torch.from_numpy(sum(train_class_hist)/train_class_hist).float()#.to(config.DEVICE)
     # sampler = WeightedRandomSampler([class_weights[c] for c in dataset.labels[torch.LongTensor(trainset.indices)]], train_batch_size)
     # train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=False, sampler=sampler, num_workers=16, collate_fn=dataset.collate_fn)
-    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16)#, collate_fn=dataset.collate_fn)
-    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16)#, collate_fn=dataset.collate_fn)
+    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
+    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
-    model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
+    # model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
+    model = BaselineSPDTransformer(50).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()
@@ -69,8 +70,10 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
         target = target.to(config.DEVICE)
         sid = sid.to(config.DEVICE)
         optimizer.zero_grad()
-        # output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
-        output = model(data.to(config.DEVICE))
+        if isinstance(data, list):
+            output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+        else:
+            output = model(data.to(config.DEVICE))
         score, pred = torch.max(output, dim=1)
         train_correct += torch.sum(pred == target)
         y_true += target.tolist()
@@ -112,8 +115,10 @@ def validate(model, dataloader, criterion, epoch):
         for data, target, sid in dataloader:
             target = target.to(config.DEVICE)
             sid = sid.to(config.DEVICE)
-            # output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
-            output = model(data.to(config.DEVICE))
+            if isinstance(data, list):
+                output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+            else:
+                output = model(data.to(config.DEVICE))
             score, pred = torch.max(output, dim=1)
             val_correct += torch.sum(pred == target)
             y_true += target.tolist()

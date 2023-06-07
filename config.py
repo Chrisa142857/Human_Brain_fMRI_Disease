@@ -1,6 +1,6 @@
 BASELINE_MODEL = {
     'in_dim': 191,
-    'embed_dim': 768,
+    'embed_dim': 2048,
     'nhead': 8,
     'nlayer': 8,
     'nclass': 2
