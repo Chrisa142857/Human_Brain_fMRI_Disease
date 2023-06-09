@@ -2,8 +2,9 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 import numpy as np
 import torch, csv, os
-STEP_SIZE = 30
-WIN_SIZE = 50
+from tqdm import trange
+STEP_SIZE = 50
+WIN_SIZE = 80
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
@@ -68,10 +69,10 @@ class RoIBOLD(Dataset):
 
 
 class RoIBOLDCorrCoef(Dataset):
-    def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
+    def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
         step_size = STEP_SIZE
         seq_len = WIN_SIZE
-        self.roi_num = roi_num
+        self.roi_num = roi_end - roi_start
         with open(data_csvn, 'r') as f:
             lines = f.read().split('\n')[1:-1]
         self.label_dict = {
@@ -90,25 +91,34 @@ class RoIBOLDCorrCoef(Dataset):
         for fpaths in tqdm(self.flist, desc="init dataset"):
             data = []
             for fpath in fpaths:
-                data.append(np.loadtxt(fpath)[:, :roi_num]) # Time x RoI
+                data.append(np.loadtxt(fpath)[:, roi_start:roi_end]) # Time x RoI
             subject_n = fpath.split('/')[-1].split('_')[0]
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
                 data = preproc(data)
-            self.data.append([data[st:st+seq_len] for st in range(0, len(data), step_size)][:-1])
+            self.data.append([data[st:st+seq_len] for st in range(0, len(data), step_size)])
             self.labels.append(self.class_dict[self.label_dict[subject_n]])
             self.subject_id_list.append(sid)
             if subject_n not in self.subject_names: 
                 self.subject_names.append(subject_n)
                 sid += 1
 
+        for i in trange(len(self.data), desc='Get corr coef SPD matrix'):
+            self.corrcoef_spd(i)
         self.labels = torch.LongTensor(self.labels)
         self.subject_id_list = torch.LongTensor(self.subject_id_list)
 
+    def corrcoef_spd(self, idx):
+        data = torch.stack([corrcoef(d) for d in self.data[idx]])
+        data = data[~data.isnan().any(1).any(1)].numpy()
+        eigenvalues = np.linalg.eigvals(data)
+        if eigenvalues.min() <= 0:
+            data = data + ((1e-2 + np.abs(eigenvalues.min(1))) * np.stack([np.eye(data.shape[-1]) for _ in range(len(data))], -1)).transpose(2,0,1)
+        data = torch.from_numpy(data).float()
+        self.data[idx] = data
+
     def __getitem__(self, idx):
-        torch.set_printoptions(precision=3, threshold=1e-10)
-        data = torch.stack([torch.corrcoef(d) for d in self.data[idx]])
-        return data, self.labels[idx], self.subject_id_list[idx]
+        return self.data[idx], self.labels[idx], self.subject_id_list[idx]
 
     def __len__(self):
         return len(self.data)
@@ -122,6 +132,36 @@ class RoIBOLDCorrCoef(Dataset):
             labels.append(torch.LongTensor([label]))
             subs.append(torch.LongTensor([sub]))
         return data, torch.cat(labels), torch.cat(subs)
+
+
+def corrcoef(X):
+    # avg = torch.mean(X, dim=-1)
+    # X = X - avg[..., None]
+    # X_T = X.swapaxes(-2, -1)
+    # c = torch.matmul(X, X_T)
+    # d = torch.diagonal(c, 0, -2, -1)
+    # stddev = torch.sqrt(torch.tensor(d))
+    # c = c / stddev[..., None]
+    # c = c / stddev[..., None, :]
+    # c = torch.clip(c, -1, 1, out=c)
+    # return c
+    # ChatGPT answers:
+    # 计算相关性系数矩阵
+    # 输入:
+    #   X: 输入数据，形状为 (num_samples, num_variables)
+    # 输出:
+    #   corr_matrix: 相关性系数矩阵，形状为 (num_variables, num_variables)
+    # 计算均值
+    mean_X = torch.mean(X, dim=0)
+    # 计算标准差
+    std_X = torch.std(X, dim=0)
+    # 归一化数据
+    X_normalized = (X - mean_X) / std_X
+    # 计算协方差矩阵
+    cov_matrix = torch.matmul(X_normalized.T, X_normalized) / X.shape[0]
+    # 计算相关性系数矩阵
+    corr_matrix = cov_matrix / torch.sqrt(torch.diag(cov_matrix))
+    return corr_matrix
 
 
 if __name__ == '__main__':

@@ -45,7 +45,6 @@ class SPDTransform(nn.Module):
         # weight = weight.expand(*(input.shape[:-2]), -1, -1)
 
         output = weight.transpose(-2, -1) @ input @ weight
-
         return output
 
 """
@@ -195,65 +194,17 @@ class SPDRectifiedFunction(Function):
     @staticmethod
     def forward(ctx, input, epsilon):
         ctx.save_for_backward(input, epsilon)
-
-        # output = input.new(input.size(0), input.size(1), input.size(2))
         # 特征值ReLU
         u, s, v = input.svd()
         s[s < epsilon[0]] = epsilon[0]
         s = torch.diag_embed(s)
         output = s @ u.transpose(-2, -1) @ u
-        # output = torch.einsum("bnxy,bnyz->bnxz", s, u.transpose(-2, -1))
-        # output = torch.einsum("bnxy,bnyz->bnxz", u, output)
-        # for k, x in enumerate(input):
-        #     u, s, v = x.svd()
-        #     s[s < epsilon[0]] = epsilon[0]
-        #     output[k] = u.mm(s.diag().mm(u.transpose(-2, -1)))
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         input, epsilon = ctx.saved_variables
         grad_input = None
-
-        # if ctx.needs_input_grad[0]:
-        #     eye = input.new(input.size(1))
-        #     eye.fill_(1)
-        #     eye = eye.diag()
-        #     grad_input = input.new(input.size(0), input.size(1), input.size(2))
-        #     for k, g in enumerate(grad_output):
-        #         if len(g.shape) == 1:
-        #             continue
-        #
-        #         g = symmetric(g)
-        #
-        #         x = input[k]
-        #         u, s, v = x.svd()
-        #         # s, u = x.symeig(eigenvectors=True)
-        #
-        #         max_mask = s > epsilon
-        #         s_max_diag = s.clone()
-        #         s_max_diag[~max_mask] = epsilon
-        #         s_max_diag = s_max_diag.diag()
-        #         Q = max_mask.float().diag()
-        #
-        #         dLdV = 2 * (g.mm(u.mm(s_max_diag)))
-        #         dLdS = eye * (Q.mm(u.t().mm(g.mm(u))))
-        #
-        #         P = s.unsqueeze(1)
-        #         P = P.expand(-1, P.size(0))
-        #         P = P - P.t()
-        #
-        #         # mask_zero = torch.abs(P) == 0
-        #         # P = 1 / P
-        #         # P[mask_zero] = 0
-        #
-        #         index_zero = np.diag_indices(P.shape[0])
-        #         P = 1 / P
-        #         P[index_zero[0], index_zero[1]] = 0
-        #         P[P.isinf()] = 0  # 防止对角线以外的元素为inf
-        #
-        #         grad_input[k] = u.mm(symmetric(P.t() * u.t().mm(dLdV)) + dLdS).mm(u.t())  # symmetric包含比论文中多？
-        #         # grad_input[k] = u.mm(P.t() * symmetric(u.t().mm(dLdV)) + dLdS).mm(u.t())
 
         if ctx.needs_input_grad[0]:
             eye = input.new(input.size(-1))
@@ -264,7 +215,6 @@ class SPDRectifiedFunction(Function):
             g = symmetric(g)
 
             u, s, v = input.svd()
-            # s, u = x.symeig(eigenvectors=True)
 
             max_mask = s > epsilon
             s_max_diag = s.clone()
@@ -278,18 +228,12 @@ class SPDRectifiedFunction(Function):
             P = s.unsqueeze(-2)
             P = P - P.transpose(-2, -1)
 
-            # mask_zero = torch.abs(P) == 0
-            # P = 1 / P
-            # P[mask_zero] = 0
-
             index_zero = np.diag_indices(P.shape[-1])
             P = 1 / P
             P[..., index_zero[0], index_zero[1]] = 0
             P[P.isinf()] = 0  # 防止对角线以外的元素为inf
 
-            # grad_input[k] = u.mm(symmetric(P.t() * u.t().mm(dLdV)) + dLdS).mm(u.t())  # symmetric包含比论文中多？
             grad_input = u @ symmetric(P.transpose(-2, -1) * (u.transpose(-2, -1) @ dLdV) + dLdS) @ u.transpose(-2, -1)
-            # grad_input[k] = u.mm(P.t() * symmetric(u.t().mm(dLdV)) + dLdS).mm(u.t())
 
         return grad_input, None
     # return grad_input
@@ -306,19 +250,6 @@ class SPDRectified(nn.Module):
 
     def forward(self, input):
         output = SPDRectifiedFunction.apply(input, self.epsilon)
-
-        # u, s, v = input.svd()
-        # try:
-        #     s, u = input.symeig(eigenvectors=True)
-        # except RuntimeError:
-        #     print(input)
-        #     torch.save(input, 'error.pt')
-        # s = s.clamp(min=self.epsilon[0])
-        # s = s.diag_embed()
-        # output = u @ s @ u.transpose(-2, -1)
-
-        # input.register_hook(save_grad('input'))
-
         return output
 
 class SPDNormalization(nn.Module):
@@ -392,3 +323,78 @@ class Normalize(nn.Module):
 
 def symmetric(A):
     return 0.5 * (A + A.transpose(-2, -1))
+
+class StiefelMetaOptimizer(object):
+    """This is a meta optimizer which uses other optimizers for updating parameters
+        and remap all StiefelParameter parameters to Stiefel space after they have been updated.
+    """
+
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.state = {}
+
+
+    def zero_grad(self):
+        return self.optimizer.zero_grad()
+
+    def state_dict(self):
+        return self.optimizer.state_dict()
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                if isinstance(p, StiefelParameter):
+                    # state存储p的原始数据
+                    # if id(p) not in self.state:
+                    #     self.state[id(p)] = p.data.clone()
+                    # else:
+                    #     self.state[id(p)].fill_(0).add_(p.data)
+
+                    # p.data.fill_(0)
+
+                    # 求p的黎曼梯度
+                    trans = orthogonal_projection(p.grad, p)
+                    p.grad.fill_(0).add_(trans)
+
+        # 根据梯度更新参数，包括黎曼梯度和欧式梯度
+        loss = self.optimizer.step(closure)
+
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                if isinstance(p, StiefelParameter):
+                    # 更新后的p再映射回施蒂费尔流形
+                    # trans = retraction(p.data, self.state[id(p)])
+                    trans = retraction(p)
+                    p.fill_(0).add_(trans)
+
+        return loss
+
+# 求B的黎曼梯度，A为欧式梯度
+def orthogonal_projection(A, B):
+    out = A - B.mm(symmetric(B.transpose(0, 1).mm(A)))
+    return out
+
+# 将切向量从切空间映射回施蒂费尔流形
+def retraction(A, ref=None):
+    # ref为None时，A已经是原切点与切向量之和
+    if ref == None:
+        data = A
+    else:
+        data = A + ref
+    Q, R = data.qr()
+    # To avoid (any possible) negative values in the output matrix, we multiply the negative values by -1
+    sign = (R.diag().sign() + 0.5).sign().diag()
+    out = Q.mm(sign)
+    return out

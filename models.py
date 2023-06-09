@@ -1,5 +1,6 @@
 import torch, math
 import torch.nn as nn
+from datetime import datetime
 
 from spdnet import SPDTransform, SPDRectified, SPDTangentSpace, Normalize
 from config import BASELINE_MODEL
@@ -26,15 +27,16 @@ class Baseline(nn.Module):
 class BaselineSPD(nn.Module):
     def __init__(self, matrix_size) -> None:
         super().__init__()
+        embed_dim = 2048
         self.spdnet = SPDNet(matrix_size)
-        self.linear1 = nn.Linear(self.spdnet.out_size, BASELINE_MODEL['embed_dim'])
+        self.linear1 = nn.Linear(self.spdnet.out_size, embed_dim)
         self.linears = nn.ModuleList([nn.Sequential(
-            nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim']),
+            nn.Linear(embed_dim, embed_dim),
             nn.ReLU(),
-            nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['embed_dim']),
+            nn.Linear(embed_dim, embed_dim),
             nn.ReLU(),
         ) for _ in range(20)])
-        self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
+        self.classifier = nn.Linear(embed_dim, BASELINE_MODEL['nclass'])
 
     def forward(self, x):
         ## x.shape [batch, roi_num, roi_num] (SPD matrix)
@@ -57,7 +59,9 @@ class BaselineSPDTransformer(nn.Module):
 
     def forward(self, x):
         ## x.shape [batch, timeseries, roi_num, roi_num] (SPD matrix)
-        x = self.spdnet(x.squeeze()).unsqueeze(0)# batch, timeseries, channel
+        # print(datetime.now(), 'Start SPD Net')
+        x = self.spdnet(x[0]).unsqueeze(0)# batch, timeseries, channel
+        # print(datetime.now(), 'Done SPD Net')
         x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)

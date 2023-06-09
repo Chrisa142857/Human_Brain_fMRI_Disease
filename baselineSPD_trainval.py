@@ -2,6 +2,7 @@ from models import BaselineSPD, BaselineSPDTransformer
 from datasets import RoIBOLDCorrCoef
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
+from spdnet import StiefelMetaOptimizer
 
 import torch, os
 import torch.nn as nn
@@ -34,7 +35,7 @@ def main():
     val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
     # model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
-    model = BaselineSPDTransformer(50).to(config.DEVICE)
+    model = BaselineSPDTransformer(dataset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()
@@ -43,6 +44,7 @@ def main():
     # optimizer = optim.SGD(model.parameters(), lr=config.learning_rate)
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=int(config.num_epochs*0.6), gamma=0.1)
+    optimizer = StiefelMetaOptimizer(optimizer)
 
     best_acc = 0 
     for epoch in trange(config.num_epochs):
@@ -51,7 +53,7 @@ def main():
         print(f"Epoch {epoch+1:04d} | Train Loss: {train_loss:.5f} | Sample Train Acc: {train_acc:.5f} | Val Loss: {val_loss:.5f} | Sample Val Acc: {val_acc:.5f}")
         print(f"             Subject Train Acc: {sub_train_acc:.5f} | Train_acc_balance: {train_acc2:.5f} | Subject Val Acc: {sub_val_acc:.5f} | Val_acc_balance: {val_acc2:.5f}")
         torch.save(model.state_dict(), "%s/lastest.pth" % (config.SAVE_DIR))
-        if best_acc <= sub_val_acc: torch.save(model.state_dict(), "%s/best.pth" % (config.SAVE_DIR))
+        if best_acc <= val_acc2: torch.save(model.state_dict(), "%s/best.pth" % (config.SAVE_DIR))
         scheduler.step()
 
 
