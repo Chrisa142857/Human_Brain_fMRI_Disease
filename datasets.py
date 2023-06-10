@@ -3,8 +3,8 @@ from tqdm import tqdm
 import numpy as np
 import torch, csv, os
 from tqdm import trange
-STEP_SIZE = 50
-WIN_SIZE = 80
+STEP_SIZE = 100
+WIN_SIZE = 500
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
@@ -82,6 +82,65 @@ class RoIBOLDCorrCoef(Dataset):
             l.split(',')[3].split('@')
         for l in lines]
         self.labels = []
+        self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
+        self.subject_names = []
+        self.subject_id_list = []
+        self.data = []
+        sid = 0
+        for fpaths in tqdm(self.flist, desc="init dataset"):
+            data = []
+            for fpath in fpaths:
+                data.append(np.loadtxt(fpath)[:, roi_start:roi_end]) # Time x RoI
+            subject_n = fpath.split('/')[-1].split('_')[0]
+            data = torch.from_numpy(np.concatenate(data).astype(np.float32))
+            if preproc:
+                data = preproc(data)
+            data = torch.stack([corrcoef(data[st:st+seq_len]) for st in range(0, len(data), step_size)])
+            data = data[~data.isnan().any(1).any(1)]
+            torch.nn.init.orthogonal_(data)
+            data = data + 1e-10*torch.stack([torch.eye(data.shape[-1]) for _ in range(len(data))], -1).permute(2,0,1)
+            for d in data:
+                self.data.append(d)
+                self.labels.append(self.class_dict[self.label_dict[subject_n]])
+                self.subject_id_list.append(sid)
+            if subject_n not in self.subject_names: 
+                self.subject_names.append(subject_n)
+                sid += 1
+
+        self.labels = torch.LongTensor(self.labels)
+        self.subject_id_list = torch.LongTensor(self.subject_id_list)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx], self.subject_id_list[idx]
+
+    def __len__(self):
+        return len(self.data)
+        
+    def collate_fn(self, batch):
+        data = []
+        labels = []
+        subs = []
+        for d, label, sub in batch:
+            data.append(d)
+            labels.append(torch.LongTensor([label]))
+            subs.append(torch.LongTensor([sub]))
+        return torch.stack(data), torch.cat(labels), torch.cat(subs)
+
+
+class RoIBOLDCorrCoefWin(Dataset):
+    def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
+        step_size = STEP_SIZE
+        seq_len = WIN_SIZE
+        self.roi_num = roi_end - roi_start
+        with open(data_csvn, 'r') as f:
+            lines = f.read().split('\n')[1:-1]
+        self.label_dict = {
+            l.split(',')[0]: l.split(',')[1] 
+        for l in lines}
+        self.flist = [
+            l.split(',')[3].split('@')
+        for l in lines]
+        self.labels = []
         self.seq_len = seq_len
         self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
         self.subject_names = []
@@ -110,11 +169,9 @@ class RoIBOLDCorrCoef(Dataset):
 
     def corrcoef_spd(self, idx):
         data = torch.stack([corrcoef(d) for d in self.data[idx]])
-        data = data[~data.isnan().any(1).any(1)].numpy()
-        eigenvalues = np.linalg.eigvals(data)
-        if eigenvalues.min() <= 0:
-            data = data + ((1e-2 + np.abs(eigenvalues.min(1))) * np.stack([np.eye(data.shape[-1]) for _ in range(len(data))], -1)).transpose(2,0,1)
-        data = torch.from_numpy(data).float()
+        data = data[~data.isnan().any(1).any(1)]
+        torch.nn.init.orthogonal_(data)
+        data = data + 1e-10*torch.stack([torch.eye(data.shape[-1]) for _ in range(len(data))], -1).permute(2,0,1)
         self.data[idx] = data
 
     def __getitem__(self, idx):

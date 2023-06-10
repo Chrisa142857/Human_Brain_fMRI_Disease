@@ -119,7 +119,8 @@ class SPDTangentSpaceFunction(Function):
             grad_input = input.new(input.size(0), input.size(1), input.size(1))
             for k, g in enumerate(grad_output):
                 x = input[k]
-                u, s, v = x.svd()
+                # u, s, v = x.svd()
+                u, s, _ = torch.linalg.svd(x, full_matrices=True)
                 # s, u = x.symeig(eigenvectors=True)
 
                 g = symmetric(g)
@@ -195,7 +196,8 @@ class SPDRectifiedFunction(Function):
     def forward(ctx, input, epsilon):
         ctx.save_for_backward(input, epsilon)
         # 特征值ReLU
-        u, s, v = input.svd()
+        # u, s, v = input.svd()
+        u, s, _ = torch.linalg.svd(input, full_matrices=True)
         s[s < epsilon[0]] = epsilon[0]
         s = torch.diag_embed(s)
         output = s @ u.transpose(-2, -1) @ u
@@ -214,7 +216,8 @@ class SPDRectifiedFunction(Function):
             g = grad_output
             g = symmetric(g)
 
-            u, s, v = input.svd()
+            # u, s, v = input.svd()
+            u, s, _ = torch.linalg.svd(input, full_matrices=True)
 
             max_mask = s > epsilon
             s_max_diag = s.clone()
@@ -393,7 +396,8 @@ def retraction(A, ref=None):
         data = A
     else:
         data = A + ref
-    Q, R = data.qr()
+    # Q, R = data.qr()
+    Q, R = torch.linalg.qr(data)
     # To avoid (any possible) negative values in the output matrix, we multiply the negative values by -1
     sign = (R.diag().sign() + 0.5).sign().diag()
     out = Q.mm(sign)

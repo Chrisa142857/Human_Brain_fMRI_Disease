@@ -1,5 +1,5 @@
 from models import BaselineSPD, BaselineSPDTransformer
-from datasets import RoIBOLDCorrCoefWin
+from datasets import RoIBOLDCorrCoef
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
 from spdnet import StiefelMetaOptimizer
@@ -13,7 +13,8 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    dataset = RoIBOLDCorrCoefWin(
+    config.DEVICE = 'cuda:3'
+    dataset = RoIBOLDCorrCoef(
         data_csvn='OASIS3_convert_vs_nonconvert.csv', 
         # preproc=bold_signal_to_trends,
         # preproc=bold_signal_threshold,
@@ -34,15 +35,15 @@ def main():
     train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
     val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
-    # model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
-    model = BaselineSPDTransformer(dataset.roi_num).to(config.DEVICE)
+    model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
+    # model = BaselineSPDTransformer(dataset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(config.DEVICE))
     # Define your optimizer
     # optimizer = optim.SGD(model.parameters(), lr=config.learning_rate)
-    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=int(config.num_epochs*0.6), gamma=0.1)
     optimizer = StiefelMetaOptimizer(optimizer)
 
@@ -51,7 +52,7 @@ def main():
         train_loss, train_acc, sub_train_acc, train_acc2 = train(model, train_loader, criterion, optimizer, scheduler, epoch)
         val_loss, val_acc, sub_val_acc, val_acc2 = validate(model, val_loader, criterion, epoch)
         print(f"Epoch {epoch+1:04d} | Train Loss: {train_loss:.5f} | Sample Train Acc: {train_acc:.5f} | Val Loss: {val_loss:.5f} | Sample Val Acc: {val_acc:.5f}")
-        print(f"             Subject Train Acc: {sub_train_acc:.5f} | Train_acc_balance: {train_acc2:.5f} | Subject Val Acc: {sub_val_acc:.5f} | Val_acc_balance: {val_acc2:.5f}")
+        print(f"             Subject Train Acc: {sub_train_acc:.5f} | Sub Train_acc_balance: {train_acc2:.5f} | Subject Val Acc: {sub_val_acc:.5f} | Sub Val_acc_balance: {val_acc2:.5f}")
         torch.save(model.state_dict(), "%s/lastest.pth" % (config.SAVE_DIR))
         if best_acc <= val_acc2: torch.save(model.state_dict(), "%s/best.pth" % (config.SAVE_DIR))
         scheduler.step()
