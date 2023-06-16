@@ -3,8 +3,8 @@ from tqdm import tqdm
 import numpy as np
 import torch, csv, os
 from tqdm import trange
-STEP_SIZE = 100
-WIN_SIZE = 500
+STEP_SIZE = 50
+WIN_SIZE = 80
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
@@ -168,10 +168,10 @@ class RoIBOLDCorrCoefWin(Dataset):
         self.subject_id_list = torch.LongTensor(self.subject_id_list)
 
     def corrcoef_spd(self, idx):
-        data = torch.stack([corrcoef(d) for d in self.data[idx]])
+        data = torch.stack([corrcoef(d.T) for d in self.data[idx]])
         data = data[~data.isnan().any(1).any(1)]
-        torch.nn.init.orthogonal_(data)
-        data = data + 1e-10*torch.stack([torch.eye(data.shape[-1]) for _ in range(len(data))], -1).permute(2,0,1)
+        # torch.nn.init.orthogonal_(data)
+        # data = data + 1e-10*torch.stack([torch.eye(data.shape[-1]) for _ in range(len(data))], -1).permute(2,0,1)
         self.data[idx] = data
 
     def __getitem__(self, idx):
@@ -192,40 +192,46 @@ class RoIBOLDCorrCoefWin(Dataset):
 
 
 def corrcoef(X):
-    # avg = torch.mean(X, dim=-1)
-    # X = X - avg[..., None]
-    # X_T = X.swapaxes(-2, -1)
-    # c = torch.matmul(X, X_T)
-    # d = torch.diagonal(c, 0, -2, -1)
-    # stddev = torch.sqrt(torch.tensor(d))
-    # c = c / stddev[..., None]
-    # c = c / stddev[..., None, :]
-    # c = torch.clip(c, -1, 1, out=c)
-    # return c
-    # ChatGPT answers:
-    # 计算相关性系数矩阵
-    # 输入:
-    #   X: 输入数据，形状为 (num_samples, num_variables)
-    # 输出:
-    #   corr_matrix: 相关性系数矩阵，形状为 (num_variables, num_variables)
-    # 计算均值
-    mean_X = torch.mean(X, dim=0)
-    # 计算标准差
-    std_X = torch.std(X, dim=0)
-    # 归一化数据
-    X_normalized = (X - mean_X) / std_X
-    # 计算协方差矩阵
-    cov_matrix = torch.matmul(X_normalized.T, X_normalized) / X.shape[0]
-    # 计算相关性系数矩阵
-    corr_matrix = cov_matrix / torch.sqrt(torch.diag(cov_matrix))
-    return corr_matrix
+    avg = torch.mean(X, dim=-1)
+    X = X - avg[..., None]
+    X_T = X.swapaxes(-2, -1)
+    c = torch.matmul(X, X_T)
+    d = torch.diagonal(c, 0, -2, -1)
+    stddev = torch.sqrt(torch.tensor(d))
+    c = c / stddev[..., None]
+    c = c / stddev[..., None, :]
+    c = torch.clip(c, -1, 1, out=c)
+    return c
+    # # ChatGPT answers:
+    # # 计算相关性系数矩阵
+    # # 输入:
+    # #   X: 输入数据，形状为 (num_samples, num_variables)
+    # # 输出:
+    # #   corr_matrix: 相关性系数矩阵，形状为 (num_variables, num_variables)
+    # # 计算均值
+    # mean_X = torch.mean(X, dim=0)
+    # # 计算标准差
+    # std_X = torch.std(X, dim=0)
+    # # 归一化数据
+    # X_normalized = (X - mean_X) / std_X
+    # # 计算协方差矩阵
+    # cov_matrix = torch.matmul(X_normalized.T, X_normalized) / X.shape[0]
+    # # 计算相关性系数矩阵
+    # corr_matrix = cov_matrix / torch.sqrt(torch.diag(cov_matrix))
+    # return corr_matrix
 
 
 if __name__ == '__main__':
-    # r = '../data/OASIS3/fMRI_processed/RoI_BOLD/a2009s_ReadyForTrain'
-    # label_csvn='../data/OASIS3/fMRI_label.csv'
-    # flist = os.listdir(r)
-    # flist = [os.path.join(r, f) for f in flist]
-    # RoIBOLDCorrCoefMat(flist, label_csvn, preproc=None)
-
-    RoIBOLD(data_csvn='OASIS3_convert_vs_nonconvert.csv')
+    import matplotlib.pyplot as plt
+    dataset = RoIBOLDCorrCoefWin(
+        data_csvn='OASIS3_convert_vs_nonconvert.csv', 
+    )
+    for di, data in enumerate(dataset):
+        fig, ax = plt.subplots(5,8)
+        ax = ax.reshape(-1)
+        for i in range(40):
+            if i >= len(data[0]): break
+            ax[i].matshow(data[0][i])
+        plt.savefig('CCmats/%d_%d.jpg' % (di,data[1]), dpi=600)
+        plt.close()
+        

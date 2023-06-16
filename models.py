@@ -6,9 +6,12 @@ from spdnet import SPDTransform, SPDRectified, SPDTangentSpace, Normalize
 from config import BASELINE_MODEL
 
 class Baseline(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, matrix_size=None) -> None:
         super().__init__()
-        self.linear = nn.Linear(BASELINE_MODEL['in_dim'], BASELINE_MODEL['embed_dim'])
+        if matrix_size is not None:
+            self.conv = nn.Sequential(nn.Conv2d(1, BASELINE_MODEL['embed_dim'], matrix_size, matrix_size))
+        else:
+            self.linear = nn.Linear(BASELINE_MODEL['in_dim'], BASELINE_MODEL['embed_dim'])
         encoder_layer = nn.TransformerEncoderLayer(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         self.pos_encoder = PositionalEncoding(BASELINE_MODEL['embed_dim'])
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=BASELINE_MODEL['nlayer'])
@@ -16,7 +19,10 @@ class Baseline(nn.Module):
 
     def forward(self, x):
         ## x.shape [batch, timeseries, roi_num]
-        x = self.linear(x)
+        if len(x.shape) > 3: 
+            x = self.conv(x.transpose(1, 0)).squeeze().unsqueeze(0)
+        else:
+            x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)
         # x = x.mean(dim=0)

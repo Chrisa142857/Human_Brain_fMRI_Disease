@@ -1,5 +1,5 @@
 from models import Baseline
-from datasets import RoIBOLD
+from datasets import RoIBOLD, RoIBOLDCorrCoefWin
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
 
@@ -12,10 +12,13 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    dataset = RoIBOLD(
+    # dataset = RoIBOLD(
+    #     data_csvn='OASIS3_convert_vs_nonconvert.csv', 
+    #     # preproc=bold_signal_to_trends,
+    #     preproc=bold_signal_threshold,
+    # )
+    dataset = RoIBOLDCorrCoefWin(
         data_csvn='OASIS3_convert_vs_nonconvert.csv', 
-        # preproc=bold_signal_to_trends,
-        preproc=bold_signal_threshold,
     )
     train_len = int(config.TRAIN_RATIO*len(dataset))
     trainset, valset = random_split(dataset, [train_len, len(dataset) - train_len], torch.Generator().manual_seed(2345))
@@ -33,7 +36,7 @@ def main():
     train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
     val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
-    model = Baseline().to(config.DEVICE)
+    model = Baseline(dataset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()

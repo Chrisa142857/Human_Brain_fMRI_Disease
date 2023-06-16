@@ -43,7 +43,7 @@ def main():
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(config.DEVICE))
     # Define your optimizer
     # optimizer = optim.SGD(model.parameters(), lr=config.learning_rate)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=0.000001)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=int(config.num_epochs*0.6), gamma=0.1)
     optimizer = StiefelMetaOptimizer(optimizer)
 
