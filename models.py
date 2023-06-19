@@ -98,22 +98,27 @@ class PositionalEncoding(nn.Module):
     
 
 class SPDNet(nn.Module):
-    def __init__(self, matrix_size=8, layer_num=4):
+    def __init__(self, matrix_size=150, layer_num=4):
         super(SPDNet, self).__init__()
         self.out_size = [matrix_size // (2**i) for i in range(layer_num)]
         layer_list = []
         in_size = matrix_size
         for out_size in self.out_size:
-            layer_list.append(SPDTransform(in_size, out_size, 1))
+            layer_list.append(SPDTransform(in_size, out_size))
             layer_list.append(SPDRectified())
             in_size = out_size
 
-        layer_list.append(SPDTangentSpace(out_size, vectorize_all=False))
+        # layer_list.append(SPDTangentSpace(out_size, vectorize_all=False))
+        layer_list.append(SPDTangentSpace(out_size))
         layer_list.append(Normalize())
         self.layers = nn.Sequential(*layer_list)
+        # self.layers = layer_list
         self.out_size = out_size + int(out_size*(out_size-1)/2)
 
     def forward(self, x):
         x = self.layers(x)
+        # for li, layer in enumerate(self.layers):
+        #     print("SPDNet layer", li, layer)
+        #     x = layer(x)
         return x
  

@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    config.DEVICE = 'cuda:3'
+    config.DEVICE = 'cuda:2'
     dataset = RoIBOLDCorrCoef(
         data_csvn='OASIS3_convert_vs_nonconvert.csv', 
         # preproc=bold_signal_to_trends,

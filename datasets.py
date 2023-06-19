@@ -95,10 +95,7 @@ class RoIBOLDCorrCoef(Dataset):
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
                 data = preproc(data)
-            data = torch.stack([corrcoef(data[st:st+seq_len]) for st in range(0, len(data), step_size)])
-            data = data[~data.isnan().any(1).any(1)]
-            torch.nn.init.orthogonal_(data)
-            data = data + 1e-10*torch.stack([torch.eye(data.shape[-1]) for _ in range(len(data))], -1).permute(2,0,1)
+            data = torch.stack([corrcoef(data[st:st+seq_len].T) for st in range(0, len(data), step_size)])
             for d in data:
                 self.data.append(d)
                 self.labels.append(self.class_dict[self.label_dict[subject_n]])
@@ -197,10 +194,12 @@ def corrcoef(X):
     X_T = X.swapaxes(-2, -1)
     c = torch.matmul(X, X_T)
     d = torch.diagonal(c, 0, -2, -1)
-    stddev = torch.sqrt(torch.tensor(d))
+    stddev = torch.sqrt(d.clone().detach())
     c = c / stddev[..., None]
     c = c / stddev[..., None, :]
     c = torch.clip(c, -1, 1, out=c)
+    c[c.isnan()] = 0
+    c = nearestPD(c)
     return c
     # # ChatGPT answers:
     # # 计算相关性系数矩阵
@@ -218,20 +217,96 @@ def corrcoef(X):
     # cov_matrix = torch.matmul(X_normalized.T, X_normalized) / X.shape[0]
     # # 计算相关性系数矩阵
     # corr_matrix = cov_matrix / torch.sqrt(torch.diag(cov_matrix))
+    # corr_matrix = nearestPD(corr_matrix)
     # return corr_matrix
+
+def nearestPD(A):
+    """Find the nearest positive-definite matrix to input
+
+    A Python/Numpy port of John D'Errico's `nearestSPD` MATLAB code [1], which
+    credits [2].
+
+    [1] https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+
+    [2] N.J. Higham, "Computing a nearest symmetric positive semidefinite
+    matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
+    """
+
+    B = (A + A.T) / 2
+    _, s, V = torch.linalg.svd(B)
+    H = V.T @ (torch.diag(s) @ V)
+
+    A2 = (B + H) / 2
+
+    A3 = (A2 + A2.T) / 2
+
+    if isPD(A3):
+        return A3
+    
+    spacing = np.spacing(torch.linalg.norm(A).numpy())
+    # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
+    # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
+    # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
+    # for `np.spacing`), we use the above definition. CAVEAT: our `spacing`
+    # will be much larger than [1]'s `eps(mineig)`, since `mineig` is usually on
+    # the order of 1e-16, and `eps(1e-16)` is on the order of 1e-34, whereas
+    # `spacing` will, for Gaussian random matrixes of small dimension, be on
+    # othe order of 1e-16. In practice, both ways converge, as the unit test
+    # below suggests.
+    I = torch.eye(A.shape[0])
+    k = 1
+    while not isPD(A3):
+        mineig = torch.min(torch.real(torch.linalg.eigvals(A3)))
+        A3 += I * (-mineig * k**2 + spacing)
+        k += 1
+
+    return A3
+
+
+def isPD(B):
+    """Returns true when input is positive-definite, via Cholesky"""
+    try:
+        _ = torch.linalg.cholesky(B)
+        _ = torch.linalg.svd(B)
+        return True
+    except torch.linalg.LinAlgError:
+        return False
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+    from models import BaselineSPD
+    input_size = 150
+    out_size = 18
+    net = BaselineSPD(input_size)
+    net.load_state_dict(torch.load('work_dir/best.pth'))
+    net = net.spdnet
+    net.eval()
+    row_idx, col_idx = np.triu_indices(out_size)
+    row_idx = torch.LongTensor(row_idx)
+    col_idx = torch.LongTensor(col_idx)
     dataset = RoIBOLDCorrCoefWin(
         data_csvn='OASIS3_convert_vs_nonconvert.csv', 
     )
     for di, data in enumerate(dataset):
+        label = data[1]
+        data = data[0]
+        # print(data.shape)
+        out = torch.zeros(len(data), out_size, out_size)
+        with torch.no_grad():
+            data = net(data)
+        # print(out.shape, data.shape)
+        out[:, row_idx, col_idx] = data
+        out = out.permute(0, 2, 1)
+        out[:, row_idx, col_idx] = data
+        out = out.permute(0, 2, 1)
+        data = out
+        # print(data.shape)
         fig, ax = plt.subplots(5,8)
         ax = ax.reshape(-1)
         for i in range(40):
-            if i >= len(data[0]): break
-            ax[i].matshow(data[0][i])
-        plt.savefig('CCmats/%d_%d.jpg' % (di,data[1]), dpi=600)
+            if i >= len(data): break
+            ax[i].matshow(data[i])
+        plt.savefig('CCmats_nearestPD_SPDnet/%d_%d.jpg' % (di, label), dpi=600)
         plt.close()
         
