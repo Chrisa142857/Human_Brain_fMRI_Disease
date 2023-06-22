@@ -3,13 +3,13 @@ from tqdm import tqdm
 import numpy as np
 import torch, csv, os
 from tqdm import trange
-STEP_SIZE = 50
-WIN_SIZE = 80
+from config import STEP_SIZE, WIN_SIZE
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
         # step_size = STEP_SIZE
         # seq_len = WIN_SIZE
+        self.roi_num = None
         with open(data_csvn, 'r') as f:
             lines = f.read().split('\n')[1:-1]
         self.label_dict = {
@@ -68,7 +68,7 @@ class RoIBOLD(Dataset):
         return data, torch.cat(labels), torch.cat(subs)
 
 
-class RoIBOLDCorrCoef(Dataset):
+class RoIBOLDCorrCoef(Dataset): ## Each data is one CC mat of a subject (1x150x150)
     def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
         step_size = STEP_SIZE
         seq_len = WIN_SIZE
@@ -124,7 +124,7 @@ class RoIBOLDCorrCoef(Dataset):
         return torch.stack(data), torch.cat(labels), torch.cat(subs)
 
 
-class RoIBOLDCorrCoefWin(Dataset):
+class RoIBOLDCorrCoefWin(Dataset): ## Each data is the sequence of one subject (Tx150x150)
     def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
         step_size = STEP_SIZE
         seq_len = WIN_SIZE
@@ -199,7 +199,7 @@ def corrcoef(X):
     c = c / stddev[..., None, :]
     c = torch.clip(c, -1, 1, out=c)
     c[c.isnan()] = 0
-    c = nearestPD(c)
+    # c = nearestPD(c)
     return c
     # # ChatGPT answers:
     # # 计算相关性系数矩阵
@@ -276,37 +276,47 @@ def isPD(B):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from models import BaselineSPD
-    input_size = 150
-    out_size = 18
-    net = BaselineSPD(input_size)
-    net.load_state_dict(torch.load('work_dir/best.pth'))
-    net = net.spdnet
-    net.eval()
-    row_idx, col_idx = np.triu_indices(out_size)
-    row_idx = torch.LongTensor(row_idx)
-    col_idx = torch.LongTensor(col_idx)
+    # input_size = 150
+    # out_size = 18
+    input_size = 90
+    out_size = 11
+    # net = BaselineSPD(input_size)
+    # net.load_state_dict(torch.load('work_dir/ADNI/best.pth'))
+    # net = net.spdnet
+    # net.eval()
+    # row_idx, col_idx = np.triu_indices(out_size)
+    # row_idx = torch.LongTensor(row_idx)
+    # col_idx = torch.LongTensor(col_idx)
     dataset = RoIBOLDCorrCoefWin(
-        data_csvn='OASIS3_convert_vs_nonconvert.csv', 
+        # data_csvn='OASIS3_convert_vs_nonconvert.csv', 
+        data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
     )
+    fig, ax = plt.subplots(5,15, figsize=(30,10), layout='tight')#
+    # ax = ax.reshape(-1)
+    # plt.rcParams['axes.titlesize'] = 5
+    class_dict = {v: k for k,v in dataset.class_dict.items()}
+    plt_num = [0 for _ in range(5)]
     for di, data in enumerate(dataset):
         label = data[1]
         data = data[0]
-        # print(data.shape)
-        out = torch.zeros(len(data), out_size, out_size)
-        with torch.no_grad():
-            data = net(data)
-        # print(out.shape, data.shape)
-        out[:, row_idx, col_idx] = data
-        out = out.permute(0, 2, 1)
-        out[:, row_idx, col_idx] = data
-        out = out.permute(0, 2, 1)
-        data = out
-        # print(data.shape)
-        fig, ax = plt.subplots(5,8)
-        ax = ax.reshape(-1)
-        for i in range(40):
-            if i >= len(data): break
-            ax[i].matshow(data[i])
-        plt.savefig('CCmats_nearestPD_SPDnet/%d_%d.jpg' % (di, label), dpi=600)
-        plt.close()
+        # run SPDnet
+        # out = torch.zeros(len(data), out_size, out_size)
+        # with torch.no_grad():
+        #     data = net(data)
+        # out[:, row_idx, col_idx] = data
+        # out = out.permute(0, 2, 1)
+        # out[:, row_idx, col_idx] = data
+        # out = out.permute(0, 2, 1)
+        # data = out
+        # done SPDnet
+        # if di >= 10: continue
+        if plt_num[label] >= 15: continue
+        ax[label, plt_num[label]].matshow(data[0])
+        ax[label, plt_num[label]].set_title(class_dict[label.item()], size=15)
+        ax[label, plt_num[label]].axis('off')  
+        plt_num[label] += 1
+        
+    # plt.tight_layout()
+    plt.savefig('CCmats_nearestPD_ADNI/0-150_win0.jpg', dpi=600)
+    plt.close()
         

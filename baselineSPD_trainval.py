@@ -14,7 +14,8 @@ import numpy as np
 
 def main():
     dataset = RoIBOLDCorrCoefWin(
-        data_csvn='OASIS3_convert_vs_nonconvert.csv', 
+        data_csvn='OASIS3_convert_vs_nonconvert.csv',
+        # data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
         # preproc=bold_signal_to_trends,
         # preproc=bold_signal_threshold,
     )
@@ -97,10 +98,11 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
     train_acc = train_correct.float() / len(dataloader.dataset)
     sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
     sub_acc = torch.sum(spred == strue).float() / len(spred)
-    sub_acc0 = torch.sum(spred[strue==0] == strue[strue==0]).float() / len(spred[strue==0])
-    sub_acc1 = torch.sum(spred[strue==1] == strue[strue==1]).float() / len(spred[strue==1])
+    balance_acc = 0
+    for i in range(config.BASELINE_MODEL['nclass']):
+        balance_acc += (torch.sum(spred[strue==i] == strue[strue==i]).float() / len(spred[strue==i])) / config.BASELINE_MODEL['nclass']
 
-    return train_loss, train_acc, sub_acc, (sub_acc0+sub_acc1)/2
+    return train_loss, train_acc, sub_acc, balance_acc
 
 
 def validate(model, dataloader, criterion, epoch):
@@ -137,10 +139,11 @@ def validate(model, dataloader, criterion, epoch):
         sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
         # assert len(sub_id) == len(dataloader.dataset.dataset.subject_names)
         sub_acc = torch.sum(spred == strue).float() / len(spred)
-        sub_acc0 = torch.sum(spred[strue==0] == strue[strue==0]).float() / len(spred[strue==0])
-        sub_acc1 = torch.sum(spred[strue==1] == strue[strue==1]).float() / len(spred[strue==1])
+        balance_acc = 0
+        for i in range(config.BASELINE_MODEL['nclass']):
+            balance_acc += (torch.sum(spred[strue==i] == strue[strue==i]).float() / len(spred[strue==i])) / config.BASELINE_MODEL['nclass']
 
-    return val_loss, val_acc, sub_acc, (sub_acc0+sub_acc1)/2
+    return val_loss, val_acc, sub_acc, balance_acc
 
 def get_subject_acc(subject_ids, targets, preds, scores):
     strue = []

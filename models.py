@@ -35,6 +35,8 @@ class BaselineSPD(nn.Module):
         super().__init__()
         embed_dim = 2048
         self.spdnet = SPDNet(matrix_size)
+        self.triu_ind = torch.triu_indices(matrix_size, matrix_size)
+        self.spdnet.out_size = self.triu_ind.shape[1]
         self.linear1 = nn.Linear(self.spdnet.out_size, embed_dim)
         self.linears = nn.ModuleList([nn.Sequential(
             nn.Linear(embed_dim, embed_dim),
@@ -46,7 +48,8 @@ class BaselineSPD(nn.Module):
 
     def forward(self, x):
         ## x.shape [batch, roi_num, roi_num] (SPD matrix)
-        x = self.spdnet(x)#.unsqueeze(1)
+        # x = self.spdnet(x)#.unsqueeze(1)
+        x = x[:, self.triu_ind[0], self.triu_ind[1]]
         x = self.linear1(x)
         for layer in self.linears:
             x = x + layer(x)
@@ -57,6 +60,8 @@ class BaselineSPDTransformer(nn.Module):
     def __init__(self, matrix_size) -> None:
         super().__init__()
         self.spdnet = SPDNet(matrix_size)
+        self.triu_ind = torch.triu_indices(matrix_size, matrix_size)
+        self.spdnet.out_size = self.triu_ind.shape[1]
         self.linear = nn.Linear(self.spdnet.out_size, BASELINE_MODEL['embed_dim'])
         encoder_layer = nn.TransformerEncoderLayer(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         self.pos_encoder = PositionalEncoding(BASELINE_MODEL['embed_dim'])
@@ -66,7 +71,8 @@ class BaselineSPDTransformer(nn.Module):
     def forward(self, x):
         ## x.shape [batch, timeseries, roi_num, roi_num] (SPD matrix)
         # print(datetime.now(), 'Start SPD Net')
-        x = self.spdnet(x[0]).unsqueeze(0)# batch, timeseries, channel
+        # x = self.spdnet(x[0]).unsqueeze(0)# batch, timeseries, channel
+        x = x[:, :, self.triu_ind[0], self.triu_ind[1]]
         # print(datetime.now(), 'Done SPD Net')
         x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))

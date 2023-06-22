@@ -103,15 +103,17 @@ def rename_bold_data():
         out = np.concatenate(out)
         np.savetxt(os.path.join(save_r, save_n+'.txt'), out)
 
+def oasis_subn_load(items):
+    sid = items[0].split('_')[0]
 
-def ad_convert_vs_nonconvert(label_csv, r):
+def ad_convert_vs_nonconvert(label_csv, r, subject_n_loader=oasis_subn_load):
     out = {}
     sub = {}
     with open(label_csv, newline='') as csvfile:
         spamreader = csv.reader(csvfile)
         lines = list(spamreader)[1:]
     for d in lines:
-        sid = d[0].split('_')[0]
+        sid = subject_n_loader(d)
         if sid not in sub: sub[sid] = []
         out[d[0]] = d[1].replace(' ', '')
         sub[sid].append(d[0])
@@ -128,7 +130,32 @@ def ad_convert_vs_nonconvert(label_csv, r):
     with open('OASIS3_convert_vs_nonconvert.csv', 'w') as f:
         f.write(new_csv)
 
+def ad_vs_cn(label_csv, r):
+    target_labels = ['AD', 'CN']
+    out = {}
+    sub = []
+    paths = {}
+    with open(label_csv, newline='') as csvfile:
+        spamreader = csv.reader(csvfile)
+        lines = list(spamreader)[1:]
+    for d in lines:
+        sid = d[1]
+        sub.append(sid)
+        out[sid] = d[-1].replace(' ', '')
+        paths[sid] = os.path.join(r, 'sub-'+sid.replace('_', '')+'_aal.txt')
+
+    new_csv = 'SUBJECT_ID,LABEL,Progress,Data_path\n'
+    for sid in sub:
+        label = out[sid]
+        path = paths[sid]
+        assert os.path.exists(path), path
+        # if label not in target_labels: continue
+        new_csv += '%s,%s,%s,%s\n' % ('sub-'+sid.replace('_', ''), label, '', path)
+    
+    with open('ADNI_AAL90_5class.csv', 'w') as f:
+        f.write(new_csv)
+
 
 if __name__ == "__main__":
     # ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv', '../data/OASIS3/fMRI_ processed/RoI_BOLD/a2009s_ReadyForTrain')
-    ad_convert_vs_nonconvert('../data/OASIS3/fMRI_label.csv', '../data/AAL_90/ADNI_FC')
+    ad_vs_cn('../data/AAL_90/ADNI_subject_info_250.csv', '../data/AAL_90/ADNI_FC')
