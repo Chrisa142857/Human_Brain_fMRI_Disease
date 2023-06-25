@@ -90,7 +90,7 @@ class RoIBOLDCorrCoef(Dataset): ## Each data is one CC mat of a subject (1x150x1
         for fpaths in tqdm(self.flist, desc="init dataset"):
             data = []
             for fpath in fpaths:
-                data.append(np.loadtxt(fpath)[:, roi_start:roi_end]) # Time x RoI
+                data.append(np.loadtxt(fpath)[30:-30, roi_start:roi_end]) # Time x RoI
             subject_n = fpath.split('/')[-1].split('_')[0]
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
@@ -147,7 +147,7 @@ class RoIBOLDCorrCoefWin(Dataset): ## Each data is the sequence of one subject (
         for fpaths in tqdm(self.flist, desc="init dataset"):
             data = []
             for fpath in fpaths:
-                data.append(np.loadtxt(fpath)[:, roi_start:roi_end]) # Time x RoI
+                data.append(np.loadtxt(fpath)[30:-30, roi_start:roi_end]) # Time x RoI
             subject_n = fpath.split('/')[-1].split('_')[0]
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
@@ -199,26 +199,10 @@ def corrcoef(X):
     c = c / stddev[..., None, :]
     c = torch.clip(c, -1, 1, out=c)
     c[c.isnan()] = 0
-    # c = nearestPD(c)
+    c = nearestPD(c)
+    c = (c - c.min(0)[0]) / (c.max(0)[0] - c.min(0)[0])
     return c
-    # # ChatGPT answers:
-    # # 计算相关性系数矩阵
-    # # 输入:
-    # #   X: 输入数据，形状为 (num_samples, num_variables)
-    # # 输出:
-    # #   corr_matrix: 相关性系数矩阵，形状为 (num_variables, num_variables)
-    # # 计算均值
-    # mean_X = torch.mean(X, dim=0)
-    # # 计算标准差
-    # std_X = torch.std(X, dim=0)
-    # # 归一化数据
-    # X_normalized = (X - mean_X) / std_X
-    # # 计算协方差矩阵
-    # cov_matrix = torch.matmul(X_normalized.T, X_normalized) / X.shape[0]
-    # # 计算相关性系数矩阵
-    # corr_matrix = cov_matrix / torch.sqrt(torch.diag(cov_matrix))
-    # corr_matrix = nearestPD(corr_matrix)
-    # return corr_matrix
+
 
 def nearestPD(A):
     """Find the nearest positive-definite matrix to input
@@ -273,6 +257,11 @@ def isPD(B):
         return False
 
 
+def denoise(data):
+    data = data[30:-30]
+    return data
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from models import BaselineSPD
@@ -290,6 +279,7 @@ if __name__ == '__main__':
     dataset = RoIBOLDCorrCoefWin(
         # data_csvn='OASIS3_convert_vs_nonconvert.csv', 
         data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
+        preproc=denoise
     )
     fig, ax = plt.subplots(5,15, figsize=(30,10), layout='tight')#
     # ax = ax.reshape(-1)
@@ -311,12 +301,12 @@ if __name__ == '__main__':
         # done SPDnet
         # if di >= 10: continue
         if plt_num[label] >= 15: continue
-        ax[label, plt_num[label]].matshow(data[0])
+        ax[label, plt_num[label]].matshow(data[2])
         ax[label, plt_num[label]].set_title(class_dict[label.item()], size=15)
         ax[label, plt_num[label]].axis('off')  
         plt_num[label] += 1
         
     # plt.tight_layout()
-    plt.savefig('CCmats_nearestPD_ADNI/0-150_win0.jpg', dpi=600)
+    plt.savefig('CCmats_nearestPD_ADNI/0-150_win2_norm.jpg', dpi=600)
     plt.close()
         
