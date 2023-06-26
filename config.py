@@ -16,10 +16,10 @@ DATA = {
     'roi_end': 191,
     'data_csvn': 'OASIS3_convert_vs_nonconvert.csv',
 }
-# STEP_SIZE = 50
-# WIN_SIZE = 80
-STEP_SIZE = 100
-WIN_SIZE = 500
+STEP_SIZE = 50
+WIN_SIZE = 80
+# STEP_SIZE = 100
+# WIN_SIZE = 500
 ## Train-val set
 TRAIN_RATIO = 0.7
 BATCH_SIZE = 32

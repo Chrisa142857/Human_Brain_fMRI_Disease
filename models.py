@@ -1,9 +1,11 @@
 import torch, math
 import torch.nn as nn
 from datetime import datetime
+from typing import Optional, Tuple
 
 from spdnet import SPDTransform, SPDRectified, SPDTangentSpace, Normalize
 from config import BASELINE_MODEL
+from multihead_correlation import MultiheadCorrelation
 
 class Baseline(nn.Module):
     def __init__(self, matrix_size=None) -> None:
@@ -127,4 +129,32 @@ class SPDNet(nn.Module):
         #     print("SPDNet layer", li, layer)
         #     x = layer(x)
         return x
+        
+ 
+class OursSelfCorr(nn.Module):
+    def __init__(self, matrix_size=None) -> None:
+        super().__init__()
+        if matrix_size is not None:
+            self.conv = nn.Sequential(nn.Conv2d(1, BASELINE_MODEL['embed_dim'], matrix_size, matrix_size))
+        else:
+            self.linear = nn.Linear(BASELINE_MODEL['in_dim'], BASELINE_MODEL['embed_dim'])
+        encoder_layer = nn.TransformerEncoderLayer(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
+        encoder_layer.self_attn = MultiheadCorrelation(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
+        self.pos_encoder = PositionalEncoding(BASELINE_MODEL['embed_dim'])
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=BASELINE_MODEL['nlayer'])
+        self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
+
+    def forward(self, x):
+        ## x.shape [batch, timeseries, roi_num]
+        if len(x.shape) > 3: 
+            x = self.conv(x.transpose(1, 0)).squeeze().unsqueeze(0)
+        else:
+            x = self.linear(x)
+        x = self.pos_encoder(x.transpose(1, 0))
+        x = self.encoder(x)
+        # x = x.mean(dim=0)
+        x = x.max(dim=0)[0]
+        x = self.classifier(x)
+        return x
+       
  
