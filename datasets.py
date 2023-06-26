@@ -83,6 +83,7 @@ class RoIBOLDCorrCoef(Dataset): ## Each data is one CC mat of a subject (1x150x1
             l.split(',')[3].split('@')
         for l in lines]
         self.labels = []
+        self.sub_labels = []
         self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
         self.subject_names = []
         self.subject_id_list = []
@@ -104,6 +105,7 @@ class RoIBOLDCorrCoef(Dataset): ## Each data is one CC mat of a subject (1x150x1
             if subject_n not in self.subject_names: 
                 self.subject_names.append(subject_n)
                 sid += 1
+            self.sub_labels.append(self.class_dict[self.label_dict[subject_n]])
 
         self.labels = torch.LongTensor(self.labels)
         self.subject_id_list = torch.LongTensor(self.subject_id_list)
@@ -280,7 +282,7 @@ if __name__ == '__main__':
     dataset = RoIBOLDCorrCoefWin(
         # data_csvn='OASIS3_convert_vs_nonconvert.csv', 
         data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
-        preproc=denoise
+        # preproc=denoise
     )
     fig, ax = plt.subplots(5,15, figsize=(30,10), layout='tight')#
     # ax = ax.reshape(-1)

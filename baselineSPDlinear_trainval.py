@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    config.DEVICE = 'cuda:3'
+    config.DEVICE = 'cuda:0'
     roi_start, roi_end = config.DATA['roi_start'], config.DATA['roi_end']
     data_csvn = config.DATA['data_csvn'] 
     with open(data_csvn, 'r') as f:
@@ -32,9 +32,9 @@ def main():
         # preproc=bold_signal_to_trends,
         # preproc=bold_signal_threshold,
     )
-    train_class_hist = np.histogram(trainset.labels, bins=len(trainset.class_dict))[0]
+    train_class_hist = np.histogram(trainset.sub_labels, bins=len(trainset.class_dict))[0]
     print(f"train label histogram: {train_class_hist}, label class: {trainset.class_dict}")
-    train_class_hist = np.histogram(valset.labels, bins=len(valset.class_dict))[0]
+    train_class_hist = np.histogram(valset.sub_labels, bins=len(valset.class_dict))[0]
     print(f"val label histogram: {train_class_hist}, val class: {valset.class_dict}")
     print("tain length", train_len, "validate length", data_len - train_len)
     # exit()

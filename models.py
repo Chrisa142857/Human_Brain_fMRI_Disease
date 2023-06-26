@@ -35,8 +35,8 @@ class BaselineSPD(nn.Module):
         super().__init__()
         embed_dim = 2048
         self.spdnet = SPDNet(matrix_size)
-        self.triu_ind = torch.triu_indices(matrix_size, matrix_size)
-        self.spdnet.out_size = self.triu_ind.shape[1]
+        # self.triu_ind = torch.triu_indices(matrix_size, matrix_size)
+        # self.spdnet.out_size = self.triu_ind.shape[1]
         self.linear1 = nn.Linear(self.spdnet.out_size, embed_dim)
         self.linears = nn.ModuleList([nn.Sequential(
             nn.Linear(embed_dim, embed_dim),
@@ -48,8 +48,8 @@ class BaselineSPD(nn.Module):
 
     def forward(self, x):
         ## x.shape [batch, roi_num, roi_num] (SPD matrix)
-        # x = self.spdnet(x)#.unsqueeze(1)
-        x = x[:, self.triu_ind[0], self.triu_ind[1]]
+        x = self.spdnet(x)#.unsqueeze(1)
+        # x = x[:, self.triu_ind[0], self.triu_ind[1]]
         x = self.linear1(x)
         for layer in self.linears:
             x = x + layer(x)
