@@ -14,7 +14,7 @@ import numpy as np
 
 def main():
     dataset = RoIBOLDCorrCoefWin(
-        data_csvn='OASIS3_convert_vs_nonconvert.csv',
+        data_csvn=config.DATA['data_csvn'],
         # data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
         # preproc=bold_signal_to_trends,
         # preproc=bold_signal_threshold,

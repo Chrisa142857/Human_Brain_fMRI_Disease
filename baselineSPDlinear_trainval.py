@@ -14,30 +14,37 @@ import numpy as np
 
 def main():
     config.DEVICE = 'cuda:3'
-    dataset = RoIBOLDCorrCoef(
-        data_csvn='OASIS3_convert_vs_nonconvert.csv', 
-        # data_csvn='ADNI_AAL90_5class.csv', roi_start=0, roi_end=90,
+    roi_start, roi_end = config.DATA['roi_start'], config.DATA['roi_end']
+    data_csvn = config.DATA['data_csvn'] 
+    with open(data_csvn, 'r') as f:
+        data_len = len(f.read().split('\n')[1:-1])
+    train_len = int(config.TRAIN_RATIO*data_len)
+    trainid, valid = random_split(range(data_len), [train_len, data_len-train_len], torch.Generator().manual_seed(2345))
+    trainset = RoIBOLDCorrCoef(
+        dataid=trainid,
+        data_csvn=data_csvn, roi_start=roi_start, roi_end=roi_end,
         # preproc=bold_signal_to_trends,
         # preproc=bold_signal_threshold,
     )
-    train_len = int(config.TRAIN_RATIO*len(dataset))
-    trainset, valset = random_split(dataset, [train_len, len(dataset) - train_len], torch.Generator().manual_seed(2345))
-    train_class_hist = np.histogram(dataset.labels[torch.LongTensor(trainset.indices)], bins=len(dataset.class_dict))[0]
-    print(f"train label histogram: {train_class_hist}, label class: {dataset.class_dict}")
-    train_class_hist = np.histogram(dataset.labels[torch.LongTensor(valset.indices)], bins=len(dataset.class_dict))[0]
-    print(f"val label histogram: {train_class_hist}, val class: {dataset.class_dict}")
-    print("tain length", train_len, "validate length", len(dataset) - train_len)
+    valset = RoIBOLDCorrCoef(
+        dataid=valid,
+        data_csvn=data_csvn, roi_start=roi_start, roi_end=roi_end,
+        # preproc=bold_signal_to_trends,
+        # preproc=bold_signal_threshold,
+    )
+    train_class_hist = np.histogram(trainset.labels, bins=len(trainset.class_dict))[0]
+    print(f"train label histogram: {train_class_hist}, label class: {trainset.class_dict}")
+    train_class_hist = np.histogram(valset.labels, bins=len(valset.class_dict))[0]
+    print(f"val label histogram: {train_class_hist}, val class: {valset.class_dict}")
+    print("tain length", train_len, "validate length", data_len - train_len)
     # exit()
     train_batch_size = config.BATCH_SIZE
     val_batch_size = config.BATCH_SIZE
     class_weights = torch.from_numpy(sum(train_class_hist)/train_class_hist).float()#.to(config.DEVICE)
-    # sampler = WeightedRandomSampler([class_weights[c] for c in dataset.labels[torch.LongTensor(trainset.indices)]], train_batch_size)
-    # train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=False, sampler=sampler, num_workers=16, collate_fn=dataset.collate_fn)
-    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
-    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
+    train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=trainset.collate_fn)
+    val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=trainset.collate_fn)
 
-    model = BaselineSPD(dataset.roi_num).to(config.DEVICE)
-    # model = BaselineSPDTransformer(dataset.roi_num).to(config.DEVICE)
+    model = BaselineSPD(trainset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()

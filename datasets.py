@@ -69,12 +69,13 @@ class RoIBOLD(Dataset):
 
 
 class RoIBOLDCorrCoef(Dataset): ## Each data is one CC mat of a subject (1x150x150)
-    def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
+    def __init__(self,  dataid, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
         step_size = STEP_SIZE
         seq_len = WIN_SIZE
         self.roi_num = roi_end - roi_start
         with open(data_csvn, 'r') as f:
             lines = f.read().split('\n')[1:-1]
+        lines = [lines[i] for i in dataid]
         self.label_dict = {
             l.split(',')[0]: l.split(',')[1] 
         for l in lines}
@@ -299,12 +300,13 @@ if __name__ == '__main__':
         # out = out.permute(0, 2, 1)
         # data = out
         # done SPDnet
-        # if di >= 10: continue
+        # run matshow
         if plt_num[label] >= 15: continue
         ax[label, plt_num[label]].matshow(data[2])
         ax[label, plt_num[label]].set_title(class_dict[label.item()], size=15)
         ax[label, plt_num[label]].axis('off')  
         plt_num[label] += 1
+        # done matshow
         
     # plt.tight_layout()
     plt.savefig('CCmats_nearestPD_ADNI/0-150_win2_norm.jpg', dpi=600)
