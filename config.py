@@ -22,8 +22,8 @@ WIN_SIZE = 80
 # WIN_SIZE = 500
 ## Train-val set
 TRAIN_RATIO = 0.7
-BATCH_SIZE = 32
-DEVICE = 'cuda:2'
-SAVE_DIR = './work_dir'
+BATCH_SIZE = 16
+DEVICE = 'cuda:0'
+SAVE_DIR = './work_dir/ours'
 learning_rate = 0.00001
 num_epochs = 100

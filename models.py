@@ -1,7 +1,6 @@
 import torch, math
 import torch.nn as nn
 from datetime import datetime
-from typing import Optional, Tuple
 
 from spdnet import SPDTransform, SPDRectified, SPDTangentSpace, Normalize
 from config import BASELINE_MODEL
@@ -152,6 +151,8 @@ class OursSelfCorr(nn.Module):
             x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)
+        assert not x.isnan().any()
+
         # x = x.mean(dim=0)
         x = x.max(dim=0)[0]
         x = self.classifier(x)
