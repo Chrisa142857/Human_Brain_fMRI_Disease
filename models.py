@@ -131,17 +131,27 @@ class SPDNet(nn.Module):
         
  
 class OursSelfCorr(nn.Module):
-    def __init__(self, matrix_size=None) -> None:
+    def __init__(self, matrix_size) -> None:
         super().__init__()
-        if matrix_size is not None:
-            self.conv = nn.Sequential(nn.Conv2d(1, BASELINE_MODEL['embed_dim'], matrix_size, matrix_size))
-        else:
-            self.linear = nn.Linear(BASELINE_MODEL['in_dim'], BASELINE_MODEL['embed_dim'])
+        # if matrix_size is not None:
+        #     self.conv = nn.Sequential(nn.Conv2d(1, BASELINE_MODEL['embed_dim'], matrix_size, matrix_size))
+        # else:
+        self.linear = nn.Linear(matrix_size, BASELINE_MODEL['embed_dim'])
         encoder_layer = nn.TransformerEncoderLayer(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         encoder_layer.self_attn = MultiheadCorrelation(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         self.pos_encoder = PositionalEncoding(BASELINE_MODEL['embed_dim'])
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=BASELINE_MODEL['nlayer'])
+        self.self_corr = MultiheadCorrelation(d_model=BASELINE_MODEL['embed_dim'], nhead=BASELINE_MODEL['nhead'])
         self.classifier = nn.Linear(BASELINE_MODEL['embed_dim'], BASELINE_MODEL['nclass'])
+        ## classify CC mat
+        # self.classifier = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
+        # self.classifier.conv1 = nn.Conv2d(BASELINE_MODEL['nhead'], 
+        #     self.classifier.conv1.out_channels, 
+        #     kernel_size=self.classifier.conv1.kernel_size,
+        #     stride=self.classifier.conv1.stride,
+        #     padding=self.classifier.conv1.padding,
+        #     bias=self.classifier.conv1.bias)
+        # self.classifier.fc = nn.Linear(self.classifier.fc.in_features, BASELINE_MODEL['nclass'], bias=True)
 
     def forward(self, x):
         ## x.shape [batch, timeseries, roi_num]
@@ -151,11 +161,17 @@ class OursSelfCorr(nn.Module):
             x = self.linear(x)
         x = self.pos_encoder(x.transpose(1, 0))
         x = self.encoder(x)
-        assert not x.isnan().any()
-
-        # x = x.mean(dim=0)
+        corr_loss = [mod.self_attn.corr_loss for mod in self.encoder.layers]
+        if corr_loss[0] is not None:
+            corr_loss = torch.cat(corr_loss).mean()
+        else:
+            corr_loss = None
+        ## Ours
+        # _, x = self.self_corr(x, x, x)
+        # x = self.classifier(x)
+        ## Orig Transformer
         x = x.max(dim=0)[0]
         x = self.classifier(x)
-        return x
+        return x, corr_loss
        
  

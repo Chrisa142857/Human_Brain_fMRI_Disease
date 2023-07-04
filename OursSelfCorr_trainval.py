@@ -12,8 +12,9 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    dataset = RoIBOLD(data_csvn=config.DATA['data_csvn'], 
-                      roi_num=191,
+    roi_start, roi_end = config.DATA['roi_start'], config.DATA['roi_end']
+    data_csvn = config.DATA['data_csvn'] 
+    dataset = RoIBOLD(data_csvn=data_csvn, roi_start=roi_start, roi_end=roi_end,
                         # roi_num=90,
                         # preproc=bold_signal_to_trends,
                         # preproc=bold_signal_threshold,
@@ -35,7 +36,7 @@ def main():
     train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
     val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
-    model = OursSelfCorr().to(config.DEVICE)
+    model = OursSelfCorr(dataset.roi_num).to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()
@@ -72,7 +73,15 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
         target = target.to(config.DEVICE)
         sid = sid.to(config.DEVICE)
         optimizer.zero_grad()
-        output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+        output = []
+        corr_loss = []
+        for d in data:
+            out, closs = model(d.unsqueeze(0).to(config.DEVICE))
+            output.append(out)
+            corr_loss.append(closs)
+        output = torch.cat(output)
+        if corr_loss[0] is not None:
+            corr_loss = torch.stack(corr_loss)
         score, pred = torch.max(output, dim=1)
         train_correct += torch.sum(pred == target)
         y_true += target.tolist()
@@ -82,14 +91,17 @@ def train(model, dataloader, criterion, optimizer, scheduler, epoch):
         sub_pred.append(spred)
         sub_ids.append(sub_id)
         sub_scores.append(sub_score)
-        loss = criterion(output, target) # loss of all time points 
+        if corr_loss[0] is not None:
+            loss = criterion(output, target) + corr_loss.mean()
+        else:
+            loss = criterion(output, target) 
         train_loss += loss.item() * len(data)
         loss.backward()
         optimizer.step()
         if batch_idx % 10 == 0:
             step = epoch * len(dataloader) + batch_idx
-            # print('Train/Loss', loss.item(), step)
-            # print('Train/Learning Rate', scheduler.get_last_lr()[0], step)
+            print('Train/Loss', loss.item(), corr_loss.mean().item() if corr_loss[0] is not None else 0, step)
+            print('Train/Learning Rate', scheduler.get_last_lr()[0], step)
     train_loss /= len(dataloader.dataset)
     train_acc = train_correct.float() / len(dataloader.dataset)
     sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))
@@ -113,12 +125,20 @@ def validate(model, dataloader, criterion, epoch):
     sub_ids = []
     sub_scores = []
     with torch.no_grad():
-        for data, target, sid in dataloader:
+        for batch_idx, (data, target, sid) in enumerate(dataloader):
             # data = data.to(config.DEVICE)
             target = target.to(config.DEVICE)
             sid = sid.to(config.DEVICE)
             # output = model(data)
-            output = torch.cat([model(d.unsqueeze(0).to(config.DEVICE)) for d in data])
+            output = []
+            corr_loss = []
+            for d in data:
+                out, closs = model(d.unsqueeze(0).to(config.DEVICE))
+                output.append(out)
+                corr_loss.append(closs)    
+            if corr_loss[0] is not None:
+                corr_loss = torch.stack(corr_loss) 
+            output = torch.cat(output) 
             score, pred = torch.max(output, dim=1)
             val_correct += torch.sum(pred == target)
             y_true += target.tolist()
@@ -128,8 +148,14 @@ def validate(model, dataloader, criterion, epoch):
             sub_pred.append(spred)
             sub_ids.append(sub_id)
             sub_scores.append(sub_score)
-            loss = criterion(output, target) # loss of all time points 
+            if corr_loss[0] is not None:
+                loss = criterion(output, target) + corr_loss.mean()
+            else:
+                loss = criterion(output, target) 
             val_loss += loss.item() * len(data)
+            if batch_idx % 10 == 0:
+                step = epoch * len(dataloader) + batch_idx
+                print('Val/Loss', loss.item(), corr_loss.mean().item() if corr_loss[0] is not None else 0, step)
         val_loss /= len(dataloader.dataset)
         val_acc = val_correct.float() / len(dataloader.dataset)
         sub_id, strue, spred, sub_score, _ = get_subject_acc(torch.cat(sub_ids), torch.cat(sub_true), torch.cat(sub_pred), torch.cat(sub_scores))

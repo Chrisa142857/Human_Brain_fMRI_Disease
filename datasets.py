@@ -4,12 +4,13 @@ import numpy as np
 import torch, csv, os
 from tqdm import trange
 from config import STEP_SIZE, WIN_SIZE
+from datetime import datetime
 
 class RoIBOLD(Dataset):
-    def __init__(self, data_csvn=None, roi_num=191, preproc=None) -> None:
+    def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
         # step_size = STEP_SIZE
         # seq_len = WIN_SIZE
-        self.roi_num = None
+        self.roi_num = roi_end - roi_start
         with open(data_csvn, 'r') as f:
             lines = f.read().split('\n')[1:-1]
         self.label_dict = {
@@ -28,7 +29,7 @@ class RoIBOLD(Dataset):
         for fpaths in tqdm(self.flist, desc="init dataset"):
             data = []
             for fpath in fpaths:
-                data.append(np.loadtxt(fpath)[:, :roi_num]) # Time x RoI
+                data.append(np.loadtxt(fpath)[30:-30, roi_start:roi_end]) # Time x RoI
             subject_n = fpath.split('/')[-1].split('_')[0]
             data = torch.from_numpy(np.concatenate(data).astype(np.float32))
             if preproc:
@@ -218,19 +219,18 @@ def nearestPD(A):
     [2] N.J. Higham, "Computing a nearest symmetric positive semidefinite
     matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
     """
-
-    B = (A + A.T) / 2
+    B = (A + A.transpose(-2, -1)) / 2
     _, s, V = torch.linalg.svd(B)
-    H = V.T @ (torch.diag(s) @ V)
+    H = V.transpose(-2, -1) @ (torch.diag_embed(s) @ V)
 
     A2 = (B + H) / 2
 
-    A3 = (A2 + A2.T) / 2
+    A3 = (A2 + A2.transpose(-2, -1)) / 2
 
     if isPD(A3):
         return A3
     
-    spacing = np.spacing(torch.linalg.norm(A).numpy())
+    spacing = np.spacing(torch.linalg.norm(A).cpu().detach().numpy())
     # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
     # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
     # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
@@ -240,11 +240,11 @@ def nearestPD(A):
     # `spacing` will, for Gaussian random matrixes of small dimension, be on
     # othe order of 1e-16. In practice, both ways converge, as the unit test
     # below suggests.
-    I = torch.eye(A.shape[0])
+    I = torch.eye(A.shape[0]).to(A.device)
     k = 1
     while not isPD(A3):
-        mineig = torch.min(torch.real(torch.linalg.eigvals(A3)))
-        A3 += I * (-mineig * k**2 + spacing)
+        mineig = torch.linalg.eigvals(A3).real.min(-1, keepdim=True)[0].min(-2, keepdim=True)[0]
+        A3 = A3 + I * (-mineig * k**2 + spacing)
         k += 1
 
     return A3
