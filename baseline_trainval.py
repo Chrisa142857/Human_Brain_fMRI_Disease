@@ -1,5 +1,5 @@
 from models import Baseline
-from datasets import RoIBOLD, RoIBOLDCorrCoefWin
+from datasets import RoIBOLD, RoIBOLDTransform
 import config
 from data_proc import bold_signal_to_trends, bold_signal_threshold
 
@@ -12,17 +12,14 @@ from tqdm import tqdm, trange
 import numpy as np
 
 def main():
-    dataset = RoIBOLD(
-        # data_csvn='OASIS3_convert_vs_nonconvert.csv', roi_num=191,
-        # data_csvn='ADNI_AAL90_ad_vs_cn.csv', roi_num=90,
-        data_csvn='ADNI_AAL90_5class.csv', roi_num=90,
-        # preproc=bold_signal_to_trends,
-        # preproc=bold_signal_threshold,
-    )
-    # dataset = RoIBOLDCorrCoefWin(
-    #     # data_csvn='OASIS3_convert_vs_nonconvert.csv', 
-    #     data_csvn='ADNI_AAL90_ad_vs_cn.csv', 
-    # )
+    roi_start, roi_end = config.DATA['roi_start'], config.DATA['roi_end']
+    data_csvn = config.DATA['data_csvn'] 
+    dataset = RoIBOLDTransform(data_csvn=data_csvn, roi_start=roi_start, roi_end=roi_end,
+                        # roi_num=90,
+                        # preproc=bold_signal_to_trends,
+                        # preproc=bold_signal_threshold,
+                    )
+
     train_len = int(config.TRAIN_RATIO*len(dataset))
     trainset, valset = random_split(dataset, [train_len, len(dataset) - train_len], torch.Generator().manual_seed(2345))
     train_class_hist = np.histogram(dataset.labels[torch.LongTensor(trainset.indices)], bins=len(dataset.class_dict))[0]
@@ -39,7 +36,7 @@ def main():
     train_loader = DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=16, collate_fn=dataset.collate_fn)
     val_loader = DataLoader(valset, batch_size=val_batch_size, shuffle=False, num_workers=16, collate_fn=dataset.collate_fn)
 
-    model = Baseline(dataset.roi_num).to(config.DEVICE)
+    model = Baseline().to(config.DEVICE)
     os.makedirs(config.SAVE_DIR, exist_ok=True)
 
     # criterion = nn.CrossEntropyLoss()

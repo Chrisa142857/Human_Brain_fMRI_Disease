@@ -5,6 +5,7 @@ import torch, csv, os
 from tqdm import trange
 from config import STEP_SIZE, WIN_SIZE
 from datetime import datetime
+import fcwt
 
 class RoIBOLD(Dataset):
     def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
@@ -66,6 +67,93 @@ class RoIBOLD(Dataset):
             # else:
             #     data.append(torch.cat([d, torch.zeros(self.seq_len-d.shape[0], d.shape[1], dtype=d.dtype)], dim=0))
         # data = torch.stack(data)
+        return data, torch.cat(labels), torch.cat(subs)
+
+
+class RoIBOLDTransform(Dataset):
+    def __init__(self, data_csvn=None, roi_start=41, roi_end=191, preproc=None) -> None:
+        # step_size = STEP_SIZE
+        # seq_len = WIN_SIZE
+        self.freq_num = 100
+        self.roi_num = roi_end - roi_start
+        with open(data_csvn, 'r') as f:
+            lines = f.read().split('\n')[1:-1]
+        self.label_dict = {
+            l.split(',')[0]: l.split(',')[1] 
+        for l in lines}
+        self.flist = [
+            l.split(',')[3].split('@')
+        for l in lines]
+        self.labels = []
+        # self.seq_len = seq_len
+        self.class_dict = {k: classi for classi, k in enumerate(np.unique(list(self.label_dict.values())))}
+        self.subject_names = []
+        self.subject_id_list = []
+        self.data = []
+        freq_len = 100 # maximum RoI number
+        sid = 0
+        for fpaths in tqdm(self.flist, desc="init dataset"):
+            data = []
+            for fpath in fpaths:
+                data.append(np.loadtxt(fpath)[30:-30, roi_start:roi_end]) # Time x RoI
+            subject_n = fpath.split('/')[-1].split('_')[0]
+            data = torch.from_numpy(np.concatenate(data).astype(np.float32))
+            # ## FFT ##############
+            # y = torch.fft.rfft(data, dim=-2).abs()
+            # freq = torch.fft.rfftfreq(data.shape[-2])#.unsqueeze(-1)
+            # x = torch.zeros(freq_len+1, y.shape[1], dtype=y.dtype)
+            # freq = (freq/.5*freq_len).long()
+            # print(f'{data.shape[0]}, {len(freq.unique())}, {len(freq)}')
+            # # for f in freq.unique():
+            #     # x[f] = y[freq==f].mean(dim=-2)
+            # assert len(freq.unique()) == len(freq)
+            # x[freq] = y
+            # # data = torch.cat([freq, y], dim=-1)  #  Freq x RoI
+            # data = x.T
+            # #####################
+            ## fCWT ##############
+            freq, y = fcwt.cwt(data[:, 0].numpy(), 1, 0.0001, 0.5, freq_len)
+            y = [y] + [fcwt.cwt(data[:, datai].numpy(), 1, 0.0001, 0.5, freq_len)[1] for datai in range(1, data.shape[1])]
+            y = np.stack(y, -1) #  Freq x Time x RoI 
+            y = np.stack([y[:, yi].reshape(-1) for yi in range(y.shape[1])], -1).T  # Freq*RoI x Time
+            # torch.nn.functional.interpolate(y, )
+            # x = torch.zeros(freq_len+1, y.shape[1], dtype=y.dtype)
+            # freq = (freq/.5*freq_len).long()
+            # print(f'{data.shape[0]}, {len(freq.unique())}, {len(freq)}')
+            # for f in freq.unique():
+                # x[f] = y[freq==f].mean(dim=-2)
+            # assert len(freq.unique()) == len(freq)
+            # x[freq] = y
+            # data = torch.cat([freq, y], dim=-1)  #  Freq x RoI
+            data = torch.from_numpy(y).abs()
+            #####################
+            if preproc:
+                data = preproc(data)
+            self.data.append(data)
+            self.labels.append(self.class_dict[self.label_dict[subject_n]])
+            self.subject_id_list.append(sid)
+            if subject_n not in self.subject_names: 
+                self.subject_names.append(subject_n)
+                sid += 1
+
+        # self.data = torch.from_numpy(np.stack(self.data).astype(np.float32))
+        self.labels = torch.LongTensor(self.labels)
+        self.subject_id_list = torch.LongTensor(self.subject_id_list)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx], self.subject_id_list[idx]
+
+    def __len__(self):
+        return len(self.data)
+    
+    def collate_fn(self, batch):
+        data = []
+        labels = []
+        subs = []
+        for d, label, sub in batch:
+            data.append(d)
+            labels.append(torch.LongTensor([label]))
+            subs.append(torch.LongTensor([sub]))
         return data, torch.cat(labels), torch.cat(subs)
 
 
